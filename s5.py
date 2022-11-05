@@ -83,7 +83,7 @@ groups = []
 max_len = 0
 for i, (c, ids) in enumerate(sorted(categories.items(), key = lambda x: x[0])):
   category_ids[i] = c
-  groups.append(ids)
+  groups.append(list(ids))
   max_len = max(max_len, len(ids))
 pad_id = -100
 for g in groups:
