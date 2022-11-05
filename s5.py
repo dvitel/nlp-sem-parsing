@@ -37,11 +37,12 @@ with open(geo_ds_file, 'r') as f:
 
 geo_ds_pairs = []
 symbol_arities = {}
+rev_symbol_arities = {}
 for l in lines:
   [_, queryl, ast] = parse2(l)
   query = " ".join(queryl)
-  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities)
-  pprinted = plain_print(ast_with_arity)
+  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities)
+  pprinted = plain_print(ast_with_arity, symbol_categories=rev_symbol_arities)
   geo_ds_pairs.append({"source": query, "target": pprinted })
 
 # geo_ds_pairs[0]
@@ -74,9 +75,9 @@ for arity, group in symbol_arities.items(): #detect symbol categories and add to
   for s in group: #categories
     tokens = tokenizer(s).input_ids
     if len(tokens) == 1: #note that arity is only checked for 1 token funcs
-      categories.setdefault(arity, []).append(tokens[0])
+      categories.setdefault(arity, set()).add(tokens[0])
     if s.endswith("id") and len(s) > 2: #stateid, riverid etc should only be under const 
-      categories.setdefault("const", []).append(tokens[0])
+      categories.setdefault("const", set()).add(tokens[0])
 category_ids = {}
 groups = [] 
 max_len = 0

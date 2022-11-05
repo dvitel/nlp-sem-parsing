@@ -97,7 +97,7 @@ def parse2(s: str):
     res = split_list(acc)
     return res[0]
 
-# [_, query, ast] = parse2("parse([how,many,rivers,do,not,traverse,the,state,with,the,capital,albany,?], answer(A,count(B,(river(B),\+ (traverse(B,C),state(C),loc(D,C),capital(D),const(D,cityid('albany',_)))),A))).")
+[_, query, ast] = parse2("parse([how,many,rivers,do,not,traverse,the,state,with,the,capital,albany,?], answer(A,count(B,(river(B),\+ (traverse(B,C),state(C),loc(D,C),capital(D),const(D,cityid('albany',_)))),A))).")
 # print(res)
 
 # ['parse', ['how', 'many', 'rivers', 'do', 'not', 'traverse', 'the', 'state', 'with', 'the', 'capital', 'albany', '?'], ['answer', 'A', ['count', 'B', ['and', ['river', 'B'], ['not', ['and', ['traverse', 'B', 'C'], ['and', ['state', 'C'], ['and', ['loc', 'D', 'C'], ['and', ['capital', 'D'], ['const', 'D', ['cityid', 'albany', '_']]]]]]]], 'A']]]
@@ -113,22 +113,29 @@ def s_expr_to_str(t, lpar="(", rpar=")"):
         sep_args = ""
     return lpar + t[0] + sep_args + rpar
 
-def add_arity(t, sep=":", symbol_arities = {}):
+def add_arity(t, symbol_arities = {}, rev_symbol_arities = {}):
     if type(t) != list:
         return t
     arity = str(len(t) - 1)
-    symbol_arities.setdefault(arity, []).append(t[0])
-    return [t[0] + sep + arity, *[add_arity(ch, sep = sep, symbol_arities = symbol_arities) for ch in t[1:]]] 
+    symbol_arities.setdefault(arity, set()).add(t[0])
+    rev_symbol_arities.setdefault(t[0], set()).add(arity)
+    return [(t[0], arity), *[add_arity(ch, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities) for ch in t[1:]]] 
 
-def plain_print(t):
+def plain_print(t, sep = ":", symbol_categories = {}):
     tokens = []
     def pprint_inner(t):
         for ch in t:
-            if type(ch) != list:
+            if type(ch) == list:
+                pprint_inner(ch)                
+            elif type(ch) == tuple:
+                if len(symbol_categories.get(ch[0], [])) == 1:
+                    tokens.append(str(ch[0]))
+                else:
+                    tokens.append(sep.join([str(x) for x in ch]))
+            else: 
                 tokens.append(str(ch))
-            else:
-                pprint_inner(ch)
     pprint_inner(t)
     return " ".join(tokens)
 
-# print(plain_print(add_arity(ast)))
+l = {}
+print(plain_print(add_arity(ast, rev_symbol_arities=l), symbol_categories=l))
