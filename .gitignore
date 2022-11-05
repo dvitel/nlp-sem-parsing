@@ -1,0 +1,6 @@
+sem_parsing/*
+docs/*
+hws/*
+*.out
+*.err 
+out/*

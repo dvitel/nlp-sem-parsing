@@ -5,53 +5,7 @@ import evaluate
 import json
 import numpy as np
 import torch
-
-def parse(s: str):
-    ''' converts string to tree - assuming Uniterpreted functions of form f(...)! '''
-    s = s.replace('\\+','NOT ').replace('[', '(').replace(']', ')').replace("'.'", '.')[:-1]
-    symbs = {'(', ')', ','}
-    def parse_name(acc, i):
-        i0 = i
-        while i < len(s) and s[i] not in symbs:
-            i += 1
-        if i < len(s) and s[i] == '(':
-            name = s[i0:i].strip()            
-            if name.startswith("NOT "):
-              name = name.split(' ')[-1]
-              f = [name]
-              not_f = ["NOT", f]
-              acc.append(not_f)
-            else:
-              f = [name]
-              acc.append(f)
-              not_f = None
-            i += 1
-            i = parse_params(f, i) #after this f contains all args
-            if f[0] == "NOT":
-              f[1] = ["[AND]", len(f) - 1, f[1:]]
-            if f[0] == "":
-              f[0] = "AND"
-              f[1:] = [len(f) - 1, f[1:]] 
-            f[0] = f"[{f[0]}]" if f[0] == "AND" or f[0] == "NOT" else f"[{f[0]}:{str(len(f) - 1)}]"
-            # if not_f:
-            #   not_f[0] = f"[NOT:1]"
-            assert s[i] == ')', f"Not at ) {i} for: {s}"
-            i += 1 #passing )
-        else: #end 
-            acc.append(['[id:1]', s[i0:i].strip("'")])
-        return i
-    def parse_params(acc, i):
-        while i < len(s) and s[i] != ')':
-            i = parse_name(acc, i)
-            if s[i] == ',':
-                i += 1
-        return i
-    acc = []
-    i = parse_name(acc, 0)
-    assert i == len(s), f"Not at end {i} for: {s}"
-    return acc
-
-# parse("parse([how,many,rivers,do,not,traverse,the,state,with,the,capital,albany,?], answer(A,count(B,(river(B),\+ (traverse(B,C),state(C),loc(D,C),capital(D),const(D,cityid('albany',_)))),A))).")
+from parsing import parse2, plain_print, add_arity
 
 # geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
 geo_ds_file = sys.argv[2] if len(sys.argv) > 2 else "geoqueries880"
@@ -67,19 +21,9 @@ learning_rate = 2e-5
 with open(geo_ds_file, 'r') as f:
   lines = f.read().splitlines()
 
-symbols = set()
-shallow_trees = set()
-max_shallow_tree_depth = 2
-
-def pprint(acc, t):
-  for ch in t:
-    if type(ch) != list:
-      if type(ch) == str and ch.startswith("["):
-        symbols.add(ch)
-      acc.append(str(ch))
-    else:
-      pprint(acc, ch)
-  return acc
+# symbols = set()
+# shallow_trees = set()
+# max_shallow_tree_depth = 2
 
 # def get_tree_depth(t):
 #   if type(t) != list:
@@ -92,21 +36,20 @@ def pprint(acc, t):
 # [[x[1] for x in pl[0][1][2:][0]] for l in lines for pl in [parse(l)]][0]
 
 geo_ds_pairs = []
+symbol_arities = {}
 for l in lines:
-  pl = parse(l)
-  # d = get_tree_depth(pl[0][2][2])
-  queryl = pl[0][1][2:][0]
-  query = " ".join([x[1] for x in queryl])
-  pprinted = pprint([], pl[0][2][2])
-  geo_ds_pairs.append((query, "".join(pprinted)))
+  [_, queryl, ast] = parse2(l)
+  query = " ".join(queryl)
+  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities)
+  pprinted = plain_print(ast_with_arity)
+  geo_ds_pairs.append({"source": query, "target": pprinted })
 
 # geo_ds_pairs[0]
 
-l1 = [{"source": s, "target": t} for s, t in geo_ds_pairs]
 # l2 = [{"source": s, "target": s} for s in shallow_trees]
-geo_ds = Dataset.from_list(l1)
+geo_ds = Dataset.from_list(geo_ds_pairs)
 geo_dss = geo_ds.train_test_split(test_size = 280)
-geo_dss["train"] = Dataset.from_list([*[l for l in geo_dss["train"]]])
+# geo_dss["train"] = Dataset.from_list([*[l for l in geo_dss["train"]]])
 
 # symbols
 # geo_dss["train"][0]
@@ -116,7 +59,7 @@ geo_dss["train"] = Dataset.from_list([*[l for l in geo_dss["train"]]])
 #NOTE: preprocessing - concat source and target with [SEP]
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[*symbols]})
+# tokenizer.add_special_tokens({'additional_special_tokens':[*symbols]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
@@ -127,9 +70,13 @@ def preprocess(e):
     return data
 
 categories = {}
-for s in symbols: #detect symbol categories and add to specific rows
-  for c in s.strip(']').split(':')[1:]: #categories
-    categories.setdefault(c, []).append(tokenizer(s).input_ids[0])
+for arity, group in symbol_arities.items(): #detect symbol categories and add to specific rows
+  for s in group: #categories
+    tokens = tokenizer(s).input_ids
+    if len(tokens) == 1: #note that arity is only checked for 1 token funcs
+      categories.setdefault(arity, []).append(tokens[0])
+    if s.endswith("id") and len(s) > 2: #stateid, riverid etc should only be under const 
+      categories.setdefault("const", []).append(tokens[0])
 category_ids = {}
 groups = [] 
 max_len = 0
@@ -157,7 +104,7 @@ processed_dss = geo_dss.map(preprocess, batched = True, remove_columns = ["sourc
 # tokenizer.decode(50256)
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
-model.resize_token_embeddings(len(tokenizer))
+# model.resize_token_embeddings(len(tokenizer))
 model.to("cuda")
 
 bleu = evaluate.load("bleu")
