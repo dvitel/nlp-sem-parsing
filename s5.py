@@ -54,9 +54,9 @@ def parse(s: str):
 # parse("parse([how,many,rivers,do,not,traverse,the,state,with,the,capital,albany,?], answer(A,count(B,(river(B),\+ (traverse(B,C),state(C),loc(D,C),capital(D),const(D,cityid('albany',_)))),A))).")
 
 # geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-geo_ds_file = sys.argv[2] or "geoqueries880"
+geo_ds_file = sys.argv[2] if len(sys.argv) > 2 else "geoqueries880"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
-out_dir = sys.argv[1] or "out"
+out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
 checkpoint = "distilgpt2"
 max_length = 128
 batch_size = 32
