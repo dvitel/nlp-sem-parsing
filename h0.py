@@ -77,7 +77,7 @@ def compute_metrics(eval_pred):
         first_not_matched -= 1
     accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
-    return {*accuracy_metric, *bleu_metric}
+    return {**accuracy_metric, **bleu_metric}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
