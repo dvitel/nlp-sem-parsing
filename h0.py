@@ -13,10 +13,10 @@ dev_file_name = "dev_hs"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
 out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
 checkpoint = "distilgpt2"
-max_length = 256
-batch_size = 16
-num_epochs = 20
-eval_steps = 20
+max_length = 912
+batch_size = 4
+num_epochs = 400
+eval_steps = 3200
 learning_rate = 2e-5
 
 def read_samples(file_name):
@@ -99,6 +99,7 @@ args = TrainingArguments(
     num_train_epochs = num_epochs,
     logging_steps=eval_steps,
     eval_steps = eval_steps,
+    eval_accumulation_steps = 4,
     gradient_accumulation_steps=1,
     weight_decay=0.1,
     # warmup_steps=1_000,
