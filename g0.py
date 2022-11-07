@@ -29,7 +29,7 @@ def simple_parse(line: str):
   queryl[-1] = queryl[-1].replace("'.'", '.')
   query = " ".join(queryl)
   ast = asts[len(prefix_astl):-3] #remove last )).
-  return (query, ast)
+  return {"source": query, "target": ast}
   
 geo_ds_pairs = [simple_parse(l) for l in lines]
 

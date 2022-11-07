@@ -49,6 +49,9 @@ def preprocess(e):
 p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
 p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
 p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
+#print("Max length train", len(max(p_train_set['input_ids'], key=lambda x: len(x))))
+#print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
+#print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
 model.to("cuda")
