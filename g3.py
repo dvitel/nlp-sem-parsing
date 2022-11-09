@@ -104,8 +104,6 @@ model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max
 model.resize_token_embeddings(len(tokenizer))
 model.to("cuda")
 
-bleu = evaluate.load("bleu")
-chrF = evaluate.load("chrf")
 exact_match = evaluate.load("exact_match")
 def compute_metrics(eval_pred):
   shift_labels = eval_pred.label_ids[...,1:]
@@ -128,8 +126,7 @@ def compute_metrics(eval_pred):
       print()
       first_not_matched -= 1
   accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
-  chrF_metric = chrF.compute(predictions = predictions, references = references)
-  return {**accuracy_metric, **chrF_metric}
+  return accuracy_metric
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
