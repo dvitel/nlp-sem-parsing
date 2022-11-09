@@ -15,38 +15,6 @@ num_epochs = 500
 eval_steps = 500
 learning_rate = 2e-5
 
-def parse(s: str):
-    ''' converts string to tree - assuming Uniterpreted functions of form f(...)! '''
-    s = s.replace('[', '(').replace(']', ')').replace("'.'", '.')[:-1]
-    symbs = {'(', ')', ','}
-    def parse_name(acc, i):
-        i0 = i
-        while i < len(s) and s[i] not in symbs:
-            i += 1
-        if i < len(s) and s[i] == '(':
-            f = [s[i0:i]]
-            acc.append(f)
-            i += 1
-            i = parse_params(f, i) #after this f contains all args
-            assert s[i] == ')', f"Not at ) {i} for: {s}"
-            i += 1 #passing )
-        else: #end 
-            acc.append(s[i0:i])
-        return i
-    def parse_params(acc, i):
-        while i < len(s) and s[i] != ')':
-            i = parse_name(acc, i)
-            if s[i] == ',':
-                i += 1
-        return i
-    acc = []
-    i = parse_name(acc, 0)
-    assert i == len(s), f"Not at end {i} for: {s}"
-    return acc 
-
-def tree_to_str(t):
-    return ("(" + t[0] + (((" " if t[0] != '' else '') + (" ".join(tree_to_str(x) for x in t[1:]))) if len(t) > 1 else "") + ")") if type(t) == list else t
-
 # s = parse("parse([could,you,tell,me,what,is,the,highest,point,in,the,state,of,oregon,?], answer(A,highest(A,(place(A),loc(A,B),state(B),const(B,stateid(oregon)))))).")
 # print(s)
 

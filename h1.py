@@ -3,38 +3,53 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments,
 from datasets import Dataset
 import evaluate
 import numpy as np
+import os
+import ast
+import re
+
+def preprocess_ast(line):
+    l = line.replace("§", "\n")
+    tree = ast.parse(l)
+
+s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
+s1 = s.replace("§", "\n")
+t = ast.parse(s1)
+t.body[0]
+re.compile("(?<=\W)\w+?=\[\]")
+re.sub("(,\s*?|(?<=\W))\w+?=\[\]", "", ast.dump(t.body[0], annotate_fields=True))
+# ast.unparse(t)
+# dir(ast)
+# help(ast.FunctionDef)
 
 # geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-geo_ds_file = sys.argv[2] if len(sys.argv) > 2 else "geoqueries880"
+hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
+train_file_name = "train_hs"
+test_file_name = "test_hs"
+dev_file_name = "dev_hs"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
 out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
 checkpoint = "distilgpt2"
-max_length = 128
-batch_size = 32
-num_epochs = 1000
-eval_steps = 1000
+max_length = 912
+batch_size = 4
+num_epochs = 400
+eval_steps = 3200
 learning_rate = 2e-5
 
-with open(geo_ds_file, 'r') as f:
-  lines = f.read().splitlines()
+def read_samples(file_name):
+    with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
+        train_source_lines = f.read().splitlines()
 
-def simple_parse(line: str):
-  prefix_queryl = "parse(["
-  prefix_astl = " answer(A,"
-  querys, asts = line.split("],")
-  queryl = querys[len(prefix_queryl):].split(",")
-  queryl[-1] = queryl[-1].replace("'.'", '.')
-  query = " ".join(queryl)
-  ast = asts[len(prefix_astl):-3] #remove last )).
-  return {"source": query, "target": ast}
-  
-geo_ds_pairs = [simple_parse(l) for l in lines]
+    with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
+        train_target_lines = f.read().splitlines()    
 
-# l2 = [{"source": s, "target": s} for s in shallow_trees]
-geo_ds = Dataset.from_list(geo_ds_pairs)
-geo_dss = geo_ds.train_test_split(test_size = 280)
+    return [{"source": s, "target": t} for (s, t) in zip(train_source_lines, train_target_lines)]
 
-#NOTE: preprocessing - concat source and target with [SEP]
+train_set = Dataset.from_list(read_samples(train_file_name))
+dev_set = Dataset.from_list(read_samples(dev_file_name))
+test_set = Dataset.from_list(read_samples(test_file_name))
+
+#First we experiment without any code preprocessing 
+
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
 # tokenizer.add_special_tokens({'additional_special_tokens':[*symbols]})
@@ -47,14 +62,17 @@ def preprocess(e):
     data = tokenizer(alt_bodies, padding = "max_length", truncation = True, max_length = max_length)  
     return data
 
-processed_dss = geo_dss.map(preprocess, batched = True, remove_columns = ["source", "target"])
+p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
+p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
+p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
+#print("Max length train", len(max(p_train_set['input_ids'], key=lambda x: len(x))))
+#print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
+#print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
-# model.resize_token_embeddings(len(tokenizer))
 model.to("cuda")
 
 bleu = evaluate.load("bleu")
-chrF = evaluate.load("chrf")
 exact_match = evaluate.load("exact_match")
 def compute_metrics(eval_pred):
     shift_labels = eval_pred.label_ids[...,1:]
@@ -77,22 +95,20 @@ def compute_metrics(eval_pred):
         print()
         first_not_matched -= 1
     accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
-    chrF_metric = chrF.compute(predictions = predictions, references = references)
-    return {**accuracy_metric, **chrF_metric}
+    bleu_metric = bleu.compute(predictions = predictions, references = references)   
+    return {**accuracy_metric, **bleu_metric}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
 def custom_data_collator(*args):
-  ''' we do not need to deduce preefix parts - change all labels till first -100 to -100 '''
-  res = data_collator(*args)
-  for l in res['labels']:
-    i = 0
-    while l[i] != -100:
-      l[i] = -100 
-      i += 1 
-  # res['l'] = res['labels']
-  # del res['labels']
-  return res
+    ''' we do not need to deduce preefix parts - change all labels till first -100 to -100 '''
+    res = data_collator(*args)
+    for l in res['labels']:
+        i = 0
+        while l[i] != -100:
+            l[i] = -100 
+            i += 1 
+    return res
 
 args = TrainingArguments(
     output_dir=out_dir, overwrite_output_dir = True,
@@ -102,6 +118,7 @@ args = TrainingArguments(
     num_train_epochs = num_epochs,
     logging_steps=eval_steps,
     eval_steps = eval_steps,
+    eval_accumulation_steps = 4,
     gradient_accumulation_steps=1,
     weight_decay=0.1,
     # warmup_steps=1_000,
@@ -117,8 +134,8 @@ trainer = Trainer(
     args=args,
     compute_metrics = compute_metrics,
     data_collator=custom_data_collator,
-    train_dataset=processed_dss["train"],
-    eval_dataset=processed_dss["test"],
+    train_dataset=p_train_set,
+    eval_dataset=p_dev_set,
 )
 
 trainer.train()

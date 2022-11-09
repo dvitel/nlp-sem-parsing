@@ -113,13 +113,14 @@ def s_expr_to_str(t, lpar="(", rpar=")"):
         sep_args = ""
     return lpar + t[0] + sep_args + rpar
 
-def add_arity(t, symbol_arities = {}, rev_symbol_arities = {}):
+def add_arity(t, symbol_arities = {}, rev_symbol_arities = {}, terminals = set()):
     if type(t) != list:
+        terminals.add(t)
         return t
     arity = str(len(t) - 1)
     symbol_arities.setdefault(arity, set()).add(t[0])
     rev_symbol_arities.setdefault(t[0], set()).add(arity)
-    return [(t[0], arity), *[add_arity(ch, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities) for ch in t[1:]]] 
+    return [(t[0], arity), *[add_arity(ch, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals) for ch in t[1:]]] 
 
 def plain_print(t, sep = ":", symbol_categories = {}):
     tokens = []

@@ -38,10 +38,11 @@ with open(geo_ds_file, 'r') as f:
 geo_ds_pairs = []
 symbol_arities = {}
 rev_symbol_arities = {}
+terminals = set()
 for l in lines:
   [_, queryl, ast] = parse2(l)
   query = " ".join(queryl)
-  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities)
+  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals)
   pprinted = plain_print(ast_with_arity, symbol_categories=rev_symbol_arities)
   geo_ds_pairs.append({"source": query, "target": pprinted })
 
@@ -90,6 +91,12 @@ for g in groups:
   for i in range(len(g), max_len):
     g.append(pad_id)
 
+var_ids = []
+for t in terminals:
+  if t.isupper() and len(t) == 1:
+    var_ids.append(tokenizer(t).input_ids[0])
+
+# var_ids_tensor = torch.tensor(var_ids, device = "cuda")
 groups_tensor = torch.tensor(groups, device = "cuda")
 
 processed_dss = geo_dss.map(preprocess, batched = True, remove_columns = ["source", "target"])
@@ -154,7 +161,7 @@ def compute_metrics(eval_pred):
 # # z.sum(axis=[1,2])
 # x.unsqueeze(0).repeat(len(y), 1, 1) == y
 
-def grammar_weighted_loss(label_ids, logits, list_len_err=2.0, group_err = 4.0):
+def grammar_weighted_loss(label_ids, logits, var_err=2.0, func_err=5.0, category_err = 10.0):
   """ Computes weighted loss according to grammar of target sentence language """
   shift_labels = label_ids[...,1:].contiguous()
   shift_logits = logits[..., :-1, :].contiguous()
@@ -188,7 +195,10 @@ def grammar_weighted_loss(label_ids, logits, list_len_err=2.0, group_err = 4.0):
   # print("P", pred)
   delta = torch.abs(golden - pred).sum(dim=-1)
   # print("D", delta)
-  w[misses > 0] += group_err * delta
+  w[misses > 0] += func_err * (golden.sum(dim=-1) > 0).float() 
+  w[misses > 0] += category_err * delta  
+  for var_id in var_ids:
+    w[((shift_labels == var_id).float() * misses) > 0] += var_err
   
   # for i, (g, p) in enumerate(zip(shift_labels[misses > 0], predictions[misses > 0])):
   #   print("G", g)
@@ -252,7 +262,8 @@ class GrammarTrainer(Trainer):
   def compute_loss(self, model, inputs, return_outputs = False):
     input_ids = inputs["input_ids"]    
     # print("Present data", inputs.keys())
-    outputs = model(input_ids)
+    model_inputs = {k:v for k,v in inputs.items() if  k != "labels"}
+    outputs = model(**model_inputs)
     loss = grammar_weighted_loss(inputs["labels"], outputs.logits)
     return (loss, outputs) if return_outputs else loss
 
