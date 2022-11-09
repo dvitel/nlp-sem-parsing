@@ -1,4 +1,4 @@
-''' g5 == g4 + func:arity are made as new tokens '''
+''' g4 == g0 + parse to for func:arity '''
 
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -100,7 +100,6 @@ def add_arity(t, symbol_arities = {}, rev_symbol_arities = {}, terminals = set()
     rev_symbol_arities.setdefault(t[0], set()).add(arity)
     return [(t[0], arity), *[add_arity(ch, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals) for ch in t[1:]]] 
 
-symbols = set()
 def plain_print(t, sep = ":", symbol_categories = {}):
     tokens = []
     def pprint_inner(t):
@@ -111,9 +110,7 @@ def plain_print(t, sep = ":", symbol_categories = {}):
                 if len(symbol_categories.get(ch[0], [])) == 1:
                     tokens.append(str(ch[0]))
                 else:
-                    symbol = "[" + sep.join([str(x) for x in ch]) + "]"
-                    symbols.add(symbol)
-                    tokens.append(symbol)
+                    tokens.append(sep.join([str(x) for x in ch]))
             else: 
                 tokens.append(str(ch))
     pprint_inner(t)
@@ -126,7 +123,7 @@ def parse(line: str):
   [_, queryl, ast] = parse_sexpr(line)
   source = " ".join(x for x in queryl if x != "")
   ast_with_arity = add_arity(ast, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals)
-  target = plain_print(ast_with_arity).replace("] ", "]").replace(" [", "[")
+  target = plain_print(ast_with_arity)
   return {"source": source, "target": target}
 
 # parse("parse([how,many,states,border,colorado,and,border,new,mexico,?], answer(A,count(B,(state(B),next_to(B,C),const(C,stateid(colorado)),next_to(B,D),const(D,stateid('new mexico'))),A))).")
@@ -137,7 +134,7 @@ geo_dss = geo_ds.train_test_split(test_size = 280, seed = seed)
 #NOTE: preprocessing - concat source and target with [SEP]
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[x for x in symbols]})
+# tokenizer.add_special_tokens({'additional_special_tokens':[*symbols]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
@@ -150,7 +147,7 @@ def preprocess(e):
 processed_dss = geo_dss.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
-model.resize_token_embeddings(len(tokenizer))
+# model.resize_token_embeddings(len(tokenizer))
 model.to("cuda")
 
 bleu = evaluate.load("bleu")

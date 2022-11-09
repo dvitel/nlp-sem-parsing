@@ -1,4 +1,4 @@
-''' g5 == g4 + func:arity are made as new tokens '''
+''' g3 == g2 + all funcs are additional tokens '''
 
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -8,8 +8,8 @@ import torch
 import numpy as np
 
 geo_ds_file = "geoqueries880"
-out_dir = "out/g4"
-result_path = "result/g4"
+out_dir = "out/g3"
+result_path = "result/g3"
 checkpoint = "distilgpt2"
 max_length = 128
 batch_size = 32
@@ -36,26 +36,14 @@ def parse_sexpr(s: str):
         while i < len(s) and s[i] not in symbs:
             i += 1
         if i < len(s) and s[i] == '(':
-            name = s[i0:i].strip()            
-            if name.startswith("not "):
-                name = name.split(' ')[-1]
-                f = [name]
-                acc.append(["not", f])
-            else:
-                f = [name]
-                acc.append(f)
+            f = [s[i0:i].strip()]
+            acc.append(f)
             i += 1
             i = parse_params(f, i) #after this f contains all args
-            if f[0] == "not": #make not to have only one arg
-                f[1:] = [['', *f[1:]]] 
-            # if f[0] == "":
-            #     f[0] = "AND"
-            #     f[1:] = [len(f) - 1, f[1:]] 
-            # f[0] = f[0] if f[0] == "AND" or f[0] == "NOT" else f"{f[0]}:{str(len(f) - 1)}"
             assert s[i] == ')', f"Not at ) {i} for: {s}"
-            i += 1 
-        else:
-            acc.append(s[i0:i].strip("'"))
+            i += 1 #passing )
+        else: #end 
+            acc.append(s[i0:i])
         return i
     def parse_params(acc, i):
         while i < len(s) and s[i] != ')':
@@ -66,70 +54,33 @@ def parse_sexpr(s: str):
     acc = []
     i = parse_name(acc, 0)
     assert i == len(s), f"Not at end {i} for: {s}"
-    def split_list(l):
-        if type(l) != list:
-            return l
-        elif l[0] == '':
-            if not any(type(x) == list for x in l):
-                return l[1:]
-            root = subt = []
-            for i, el in enumerate(l):
-                if i == 0:
-                    continue
-                subt.append('and')                
-                subt.append(split_list(el))
-                if i == len(l) - 2:
-                    subt.append(split_list(l[-1]))
-                    break
-                else:                
-                    new_subt = []
-                    subt.append(new_subt)
-                    subt = new_subt
-            return root
-        else:
-            return [split_list(el) for el in l]                
-    res = split_list(acc)
-    return res[0]
+    return acc[0]
   
-def add_arity(t, symbol_arities = {}, rev_symbol_arities = {}, terminals = set()):
-    if type(t) != list:
-        terminals.add(t)
-        return t
-    arity = str(len(t) - 1)
-    symbol_arities.setdefault(arity, set()).add(t[0])
-    rev_symbol_arities.setdefault(t[0], set()).add(arity)
-    return [(t[0], arity), *[add_arity(ch, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals) for ch in t[1:]]] 
-
 symbols = set()
-def plain_print(t, sep = ":", symbol_categories = {}):
-    tokens = []
-    def pprint_inner(t):
-        for ch in t:
-            if type(ch) == list:
-                pprint_inner(ch)                
-            elif type(ch) == tuple:
-                if len(symbol_categories.get(ch[0], [])) == 1:
-                    tokens.append(str(ch[0]))
-                else:
-                    symbol = "[" + sep.join([str(x) for x in ch]) + "]"
-                    symbols.add(symbol)
-                    tokens.append(symbol)
-            else: 
-                tokens.append(str(ch))
-    pprint_inner(t)
-    return " ".join(tokens)
+def s_expr_to_str(t, lpar="(", rpar=")"):
+  if type(t) != list:
+    return t
+  if len(t) > 1:
+    args = " ".join(s_expr_to_str(x, lpar = lpar, rpar = rpar) for x in t[1:])
+    if t[0] == '':      
+      sep = ''
+      symbol = None 
+    else:
+      sep = " "    
+      symbol = "[" + t[0] + "]"
+    sep_args = sep + args 
+  else:
+    symbol = "[" + t[0] + "]"
+    sep_args = ""
+  if symbol:
+    symbols.add(symbol)
+  return lpar + (symbol if symbol is not None else t[0]) + sep_args + rpar
 
-symbol_arities = {}
-rev_symbol_arities = {}
-terminals = set()
 def parse(line: str): 
   [_, queryl, ast] = parse_sexpr(line)
   source = " ".join(x for x in queryl if x != "")
-  ast_with_arity = add_arity(ast, symbol_arities = symbol_arities, rev_symbol_arities = rev_symbol_arities, terminals = terminals)
-  target = plain_print(ast_with_arity).replace("] ", "]").replace(" [", "[")
+  target = s_expr_to_str(ast, lpar="[LPAR]", rpar="[RPAR]").replace("[RPAR] [LPAR]", "[RPAR][LPAR]").replace(" [", "[").replace("] ", "]")
   return {"source": source, "target": target}
-
-# parse("parse([how,many,states,border,colorado,and,border,new,mexico,?], answer(A,count(B,(state(B),next_to(B,C),const(C,stateid(colorado)),next_to(B,D),const(D,stateid('new mexico'))),A))).")
 
 geo_ds = Dataset.from_list([parse(l) for l in lines])
 geo_dss = geo_ds.train_test_split(test_size = 280, seed = seed)
@@ -137,7 +88,7 @@ geo_dss = geo_ds.train_test_split(test_size = 280, seed = seed)
 #NOTE: preprocessing - concat source and target with [SEP]
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[x for x in symbols]})
+tokenizer.add_special_tokens({'additional_special_tokens':["[LPAR]", "[RPAR]", *list(symbols)]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
