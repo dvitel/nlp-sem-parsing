@@ -2,12 +2,13 @@
 
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
-from datasets import Dataset
+from datasets import load_dataset
 import evaluate
 import torch
 import numpy as np
+import json
 
-geo_ds_file = "geoqueries880"
+dataset = "dvitel/geo"
 out_dir = "out/g0"
 result_path = "result/g0"
 checkpoint = "distilgpt2"
@@ -18,24 +19,11 @@ eval_steps = 1000
 learning_rate = 2e-5
 seed = 17
 
-np.random.seed(seed)
-torch.manual_seed(seed)
+# np.random.seed(seed)
+# torch.manual_seed(seed)
 
-with open(geo_ds_file, 'r') as f:
-  lines = f.read().splitlines()
-
-def parse(line: str):
-  prefix_queryl = "parse(["
-  prefix_astl = " answer(A,"
-  querys, asts = line.split("],")
-  queryl = querys[len(prefix_queryl):].split(",")
-  queryl[-1] = queryl[-1].replace("'.'", '.')
-  source = " ".join(queryl)
-  target = asts[len(prefix_astl):-3]
-  return {"source": source, "target": target}
-
-geo_ds = Dataset.from_list([parse(l) for l in lines])
-geo_dss = geo_ds.train_test_split(test_size = 280, seed = seed)
+dss = load_dataset(dataset)
+geo_dss = dss["train"].train_test_split(test_size = 280, seed = seed)
 
 #NOTE: preprocessing - concat source and target with [SEP]
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
@@ -127,4 +115,4 @@ trainer = Trainer(
 
 trainer.train()
 
-trainer.save_model(result_path)
+trainer.push_to_hub(model_name = "geo-default-parse-default-loss", tags=["sem-parsing"], finetuned_from=checkpoint, dataset=[dataset], metrics=["exact_match"])
