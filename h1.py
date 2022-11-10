@@ -9,8 +9,7 @@ import torch
 
 ELIST = "[ELIST]"
 def process(line):
-    l = line.replace("§", "\n")
-    tree = ast.parse(l)
+    tree = ast.parse(line)
     return ast.dump(tree, annotate_fields=False).replace("[]", ELIST)
 
 # s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
@@ -51,7 +50,7 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": process(t)} 
+    return [{"source": s, "target": process(t.replace("§", "\n"))} 
                 for (s, t) in zip(train_source_lines, train_target_lines)]
 
 train_set = Dataset.from_list(read_samples(train_file_name))
