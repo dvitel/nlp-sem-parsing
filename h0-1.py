@@ -13,9 +13,9 @@ test_file_name = "test_hs"
 dev_file_name = "dev_hs"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
 # out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
-out_dir = "out/h0"
-result_path = "result/h0"
-checkpoint = "distilgpt2"
+out_dir = "out/h0-1"
+result_path = "result/h0-1"
+checkpoint = "microsoft/CodeGPT-small-py"
 max_length = 912
 batch_size = 4
 num_epochs = 100
@@ -92,7 +92,7 @@ def compute_metrics(eval_pred):
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
-    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], "codebleu": codebleu_metric["CodeBLEU"], "chrf": chrf_metric['score']}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id

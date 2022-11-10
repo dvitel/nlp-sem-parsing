@@ -8,8 +8,8 @@ import torch
 import numpy as np
 
 geo_ds_file = "geoqueries880"
-out_dir = "out/g4"
-result_path = "result/g4"
+out_dir = "out/g5"
+result_path = "result/g5"
 checkpoint = "distilgpt2"
 max_length = 128
 batch_size = 32

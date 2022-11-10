@@ -5,18 +5,20 @@ import evaluate
 import numpy as np
 import os
 import ast
-import re
+import torch 
 
-def preprocess_ast(line):
+ELIST = "[ELIST]"
+def process(line):
     l = line.replace("§", "\n")
     tree = ast.parse(l)
+    return ast.dump(tree, annotate_fields=False).replace("[]", ELIST)
 
-s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
-s1 = s.replace("§", "\n")
-t = ast.parse(s1)
-t.body[0]
-re.compile("(?<=\W)\w+?=\[\]")
-re.sub("(,\s*?|(?<=\W))\w+?=\[\]", "", ast.dump(t.body[0], annotate_fields=True))
+# s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
+# s1 = s.replace("§", "\n")
+# t = ast.parse(s1)
+# t.body[0]
+# re.compile("(?<=\W)\w+?=\[\]")
+# re.sub("(,\s*?|(?<=\W))\w+?=\[\]", "", ast.dump(t.body[0], annotate_fields=True))
 # ast.unparse(t)
 # dir(ast)
 # help(ast.FunctionDef)
@@ -27,13 +29,20 @@ train_file_name = "train_hs"
 test_file_name = "test_hs"
 dev_file_name = "dev_hs"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
-out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
+# out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
+out_dir = "out/h1"
+result_path = "result/h1"
 checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
-num_epochs = 400
-eval_steps = 3200
+num_epochs = 100
+eval_steps = 800
 learning_rate = 2e-5
+seed = 17
+
+np.random.seed(seed)
+torch.manual_seed(seed)
+
 
 def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
@@ -42,7 +51,8 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": t} for (s, t) in zip(train_source_lines, train_target_lines)]
+    return [{"source": s, "target": process(t)} 
+                for (s, t) in zip(train_source_lines, train_target_lines)]
 
 train_set = Dataset.from_list(read_samples(train_file_name))
 dev_set = Dataset.from_list(read_samples(dev_file_name))
@@ -52,7 +62,7 @@ test_set = Dataset.from_list(read_samples(test_file_name))
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-# tokenizer.add_special_tokens({'additional_special_tokens':[*symbols]})
+tokenizer.add_special_tokens({'additional_special_tokens':[ELIST]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
@@ -70,9 +80,12 @@ p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", 
 #print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
+model.resize_token_embeddings(len(tokenizer))
 model.to("cuda")
 
 bleu = evaluate.load("bleu")
+codebleu = evaluate.load("dvitel/codebleu")
+chrF = evaluate.load("chrf")
 exact_match = evaluate.load("exact_match")
 def compute_metrics(eval_pred):
     shift_labels = eval_pred.label_ids[...,1:]
@@ -96,7 +109,10 @@ def compute_metrics(eval_pred):
         first_not_matched -= 1
     accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
-    return {**accuracy_metric, **bleu_metric}
+    codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
+    chrf_metric = chrF.compute(predictions = predictions, references = references)  
+    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
@@ -125,7 +141,10 @@ args = TrainingArguments(
     lr_scheduler_type="cosine",
     learning_rate=learning_rate,
     save_steps=eval_steps,
-    fp16=True
+    fp16=True, 
+    load_best_model_at_end = True, 
+    metric_for_best_model = "exact_match",    
+    seed = seed
 )
 
 trainer = Trainer(
@@ -139,3 +158,5 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+trainer.save_model(result_path)
