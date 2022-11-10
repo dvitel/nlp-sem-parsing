@@ -7,7 +7,9 @@ import os
 import ast
 import torch 
 import astunparse
-ELIST = "[ELIST]"
+CLSN = "[CLSN]"
+INIT = "[INIT]"
+NOARG = "[NOARG]"
 
 class NameRemover(ast.NodeVisitor):
     ''' TODO; reverse mode or renaming back '''
@@ -16,9 +18,9 @@ class NameRemover(ast.NodeVisitor):
         self.rev_mapping = {}
         self.i = 0
         super().__init__()
-    def add_to_vocab(self, name):
+    def add_to_vocab(self, name, token = None):
         if name not in self.mapping:
-            new_name = self.mapping[name] = "[v" + str(self.i) + "]"
+            new_name = self.mapping[name] = token or ("[v" + str(self.i) + "]")
             self.rev_mapping[new_name] = name
             self.i += 1
         return self.mapping[name]
@@ -26,7 +28,7 @@ class NameRemover(ast.NodeVisitor):
         node.id = self.add_to_vocab(node.id)
     def generic_visit(self, node):
         if hasattr(node, 'name'):
-            node.name = self.add_to_vocab(node.name)
+            node.name = self.add_to_vocab(node.name, token = CLSN if isinstance(node, ast.ClassDef) else None)
         if hasattr(node, "args") and type(node.args) == list:
             for arg in node.args:
                 if isinstance(arg, ast.arg):
@@ -38,11 +40,11 @@ def process(line):
     tree = ast.parse(line)
     nameRemover.visit(tree)
     res = astunparse.unparse(tree)
-    return res.strip().replace("    ", "\t")
+    return res.strip().replace("    ", "\t").replace("\n\n", "\n").replace(".__init__", INIT).replace("()", NOARG)
 
-# s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
-# s1 = s.replace("§", "\n")
-# process(s1)
+s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
+s1 = s.replace("§", "\n")
+process(s1)
 # t = ast.parse(s1)
 # t.body[0]
 # re.compile("(?<=\W)\w+?=\[\]")
@@ -90,7 +92,7 @@ test_set = Dataset.from_list(read_samples(test_file_name))
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[*list(nameRemover.rev_mapping.keys())]})
+tokenizer.add_special_tokens({'additional_special_tokens':[CLSN, INIT, NOARG, *list(nameRemover.rev_mapping.keys())]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
