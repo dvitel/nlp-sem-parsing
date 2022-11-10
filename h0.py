@@ -34,7 +34,7 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": t.replace("§", "\n")} for (s, t) in zip(train_source_lines, train_target_lines)]
+    return [{"source": s, "target": t.replace("§", "\n").replace("    ", "\t")} for (s, t) in zip(train_source_lines, train_target_lines)]
 
 train_set = Dataset.from_list(read_samples(train_file_name))
 dev_set = Dataset.from_list(read_samples(dev_file_name))
