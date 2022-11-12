@@ -255,7 +255,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids = [ symbol_id_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
             prediction = torch.argmax(sample_tensor[next_token_id, label_ids])
-            symbol = id_symbol_map[prediction]
+            symbol = id_symbol_map[prediction.item()]
             if symbol == NEND:
                 #enforce NEND and break 
 
@@ -284,7 +284,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         sample_tensor[token_id, :] *= logits_filter
         depthes[token_id] = depth
         prediction = torch.argmax(sample_tensor[token_id, :])
-        symbol_name = id_symbol_map[prediction]
+        symbol_name = id_symbol_map[prediction.item()]
 
         symbol = self.symbols[symbol_name]
         next_token_id = token_id + 1
