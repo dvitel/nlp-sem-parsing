@@ -93,6 +93,7 @@ class GrammarCollector():
         self.LST = Symbol(LST, LST)
         self.NEND = Symbol(NEND, NEND)        
         self.groups = {}
+        self.non_ast_types = {}
         self.symbols = {LST: self.LST, NEND: self.NEND}
     
     def get_name(self, v): 
@@ -105,7 +106,7 @@ class GrammarCollector():
         g = cur.__base__ if cur.__base__ != ast.AST else cur
         return g
 
-    def collect_metadata(self, node):
+    def collect_metadata(self, node, parent_symbol = None):
         if isinstance(node, ast.AST):
             symbol_name = self.get_name(node.__class__)
 
@@ -125,22 +126,22 @@ class GrammarCollector():
                     attr.has_values = attr.has_values or (len(attr_val) > 0)
                     if attr.group is None and len(attr_val) > 0:
                         attr.group = self.get_group(attr_val[0])
-                elif attr_val is not None:
+                elif attr_val is not None or (symbol.type == ast.Constant and attr.name == "value"):
                     attr.has_values = True
                     attr.group = self.get_group(attr_val)
                     if attr.group is None and not isinstance(node, ast.Constant):
                         attr.type = type(attr_val)
-                self.collect_metadata(attr_val)
+                self.collect_metadata(attr_val, parent_symbol = symbol)
         elif type(node) == list:
             for n in node:
                 self.collect_metadata(n)
-        elif node is not None:
+        elif node is not None or (parent_symbol is not None and parent_symbol.type == ast.Constant):
             node_type = type(node)
-            literal_type = self.get_name(node_type)
-            self.symbols[literal_type] = Symbol(literal_type, node_type)
+            literal_type = self.get_name(node_type)            
+            self.symbols[literal_type] = self.non_ast_types[literal_type] = Symbol(literal_type, node_type)            
     
     def build_message(self, node, message, qattr: SymbolAttr = start_symbol):
-        if node is None:
+        if node is None and (len(message) == 0 or message[-1] != "[Constant]"):
             assert not qattr.is_seq, f"None values and empty lists could only be part of ? schema"
             message.append(NEND)
         elif isinstance(node, ast.AST):
@@ -172,7 +173,8 @@ class GrammarCollector():
                 literal_type = None
             if literal_type:
                 message.append(literal_type)
-            message.append(str(node))
+            if node is not None:
+                message.append(str(node))
             message.append(NEND)
         return message
 
@@ -187,6 +189,8 @@ class GrammarCollector():
         elif chunk[0] in self.symbols: #only case for [int], [str] .. and other Constant node funcs
             if chunk[0] == "[bool]":
                 return "".join(chunk[1:]) != "False"
+            if chunk[0] == "[NoneType]":
+                return None
             attr_val = self.symbols[chunk[0]].type("".join(chunk[1:]))
             return attr_val
         else:
@@ -314,6 +318,11 @@ class GrammarCollector():
 # messages[147]
 # v.symbols
 
+# t = ast.parse("None")
+# v = GrammarCollector()
+# v.collect_metadata(t)
+# print(v.build_message(t, []))
+
 
 def gen_test():
     v = GrammarCollector()
@@ -336,16 +345,17 @@ def test1():
         v.collect_metadata(t)    
     messages = [v.build_message(t, []) for t in tasts]
     for i, m in enumerate(messages):
-        try:
-            r = v.unparse(m, constructor=v.build_module)
-            txt = astunparse.unparse(r)
-            print(txt)
-            print()
-        except Exception as e:
-            print(e)
-            print()
-            print(i)
-            break
+        # try:
+        # print(m)        
+        r = v.unparse(m, constructor=v.build_module)
+        txt = astunparse.unparse(r)
+        print(txt)
+        print()
+        # except Exception as e:
+        #     print(e)
+        #     print()
+        #     print(i)
+        #     break
 
 def test2():
     v = GrammarCollector()

@@ -1,5 +1,4 @@
 import sys
-from turtle import forward
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
 import evaluate
@@ -8,12 +7,7 @@ import os
 import ast
 import torch 
 import astunparse
-NEND = "[NEND]" #denotes end of the tree node 
-# NOARG = "[NOARG]"
-
-# class AssassinsBlade(WeaponCard):§    def __init__(self):§        super().__init__("Assassin's Blade", 5, CHARACTER_CLASS.ROGUE, CARD_RARITY.COMMON)§§    def create_weapon(self, player):§        return Weapon(3, 4)§
-
-# dir(ast.parse("Minion(1,2)").body[0])
+from grammar import LST, NEND, GrammarCollector, Symbol, SymbolAttr, start_symbol
 
 class NameRemover(ast.NodeVisitor):
     ''' TODO; reverse mode or renaming back '''
@@ -53,16 +47,19 @@ class NameRemover(ast.NodeVisitor):
                     arg.arg = self.add_to_vocab(arg.arg)
         return super().generic_visit(node)
 
-nameRemover = NameRemover()
+name_remover = NameRemover()
+grammar_collector = GrammarCollector()
 name_symbols = set()
-def process(line):
-    tree = ast.parse(line)
-    nameRemover.reset()
-    nameRemover.visit(tree)
-    name_symbols.update(nameRemover.rev_mapping.keys())
-    name_symbols.update(nameRemover.rev_class_mapping.keys())
-    res = astunparse.unparse(tree)
-    return res.strip().replace("    ", "\t").replace("\n\n", "\n") #.replace(".__init__", INIT).replace("()", NOARG)
+def process_to_ast(line):
+    tree = ast.parse(line)    
+    name_remover.reset()
+    name_remover.visit(tree)
+    grammar_collector.collect_metadata(tree) #after removing name
+    name_symbols.update(name_remover.rev_mapping.keys())
+    name_symbols.update(name_remover.rev_class_mapping.keys())
+    return tree
+    # res = astunparse.unparse(tree)
+    # return res.strip().replace("    ", "\t").replace("\n\n", "\n") #.replace(".__init__", INIT).replace("()", NOARG)
 
 # s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
 # s1 = s.replace("§", "\n")
@@ -98,7 +95,7 @@ learning_rate = 2e-5
 seed = 17
 
 np.random.seed(seed)
-torch.manual_seed(seed)
+# torch.manual_seed(seed)
 
 
 def read_samples(file_name):
@@ -108,18 +105,25 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": process(t.replace("§", "\n").replace("    ", "\t").replace("\\ ", ""))} 
+    return [{"source": s, "target": process_to_ast(t.replace("§", "\n").replace("    ", "\t").replace("\\ ", ""))} 
                 for (s, t) in zip(train_source_lines, train_target_lines)]
 
-train_set = Dataset.from_list(read_samples(train_file_name))
-dev_set = Dataset.from_list(read_samples(dev_file_name))
-test_set = Dataset.from_list(read_samples(test_file_name))
+def two_pass_preprocess(file_name):
+    ds_list = read_samples(file_name)
+    for x in ds_list:
+        msg = grammar_collector.build_message(x["target"], [])
+        x["target"] = "".join(msg)
+    return ds_list
+
+train_set = Dataset.from_list(two_pass_preprocess(train_file_name))
+dev_set = Dataset.from_list(two_pass_preprocess(dev_file_name))
+test_set = Dataset.from_list(two_pass_preprocess(test_file_name))
 
 #First we experiment without any code preprocessing 
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[*list(name_symbols)]})
+tokenizer.add_special_tokens({'additional_special_tokens':[*list(name_symbols), *list(grammar_collector.symbols.keys())]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
@@ -170,19 +174,170 @@ def compute_metrics(eval_pred):
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
+nend_id = tokenizer(NEND).input_ids[0]
+lst_id = tokenizer(LST).input_ids[0]
+symbol_id_map = {symbol:tokenizer(symbol).input_ids[0] for symbol in grammar_collector.symbols.keys()}
+id_symbol_map = {v:k for k,v in symbol_id_map.items()}
+
 from transformers import GPT2LMHeadModel
 #https://docs.python.org/3/library/ast.html
 class PythonGrammarGPT2(torch.nn.Module):
     def __init__(self, gpt2_config):
         super(PythonGrammarGPT2, self).__init__()
         self.transformer = GPT2LMHeadModel(gpt2_config) 
-        #logits batch_size x sentence_length x size of vocab (logits)
-        self.grammar_tensor = 0 #TODO 
+        self.transformer.resize_token_embeddings(len(tokenizer))
+        # self.max_possible_const_size = 10
+        self.length_proba = 0.97 #with each new token the logit will be decreased by this value
+        self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
+        #logits batch_size x sentence_length x size of vocab (logits)        
+
+    def _decode_constant_arg(self, sample_tensor, depthes,  attr: SymbolAttr, parent: Symbol, token_id, depth):
+        # now we need to detect a chunk of labels that NN dedicated to this constant. 
+        # we do this by taking argmax of NEND logits for next k tokens, k is hyper parameter, weighted by distance from start 
+        #NOTE: next 1 means that at least 1 token should be read
+        if token_id >= sample_tensor.size(0):
+            return sample_tensor.size(0)
+        if parent.type == ast.Constant:
+            #first token in a chunk should be type 
+            label_ids = [ symbol_id_map[label] for label in grammar_collector.non_ast_types.keys() ]
+            logits_filter = torch.zeros_like(sample_tensor[token_id, :]) #token id is position of [type] token         
+            logits_filter[label_ids] = 1
+            sample_tensor[token_id, :] *= logits_filter
+            depthes[token_id] = depth
+            start_token_id = token_id + 1
+        else:
+            start_token_id = token_id
+
+        nend_logits = sample_tensor[token_id + 1:, nend_id]
+        if len(nend_logits) == 0:
+            return sample_tensor.size(0)
+        nend_weights = torch.tensor([ self.length_proba ** i for i in range(self.max_possible_const_size)], device = nend_logits.device)
+        nend_positions = nend_logits * nend_weights
+        n = torch.argmax(nend_positions) + 1
+        nend_token_id = token_id + n #position of NEND - we are going to force NEND generation
+        
+        #setting up filter for nend        
+        logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
+        logits_filter[nend_id] = 1
+        sample_tensor[nend_token_id, :] *= logits_filter
+        depthes[nend_token_id] = depth
+
+        #between start_token_id and nend_token_id we need to guarantee that there are no token from grammar 
+
+        logits_filter = torch.ones_like(sample_tensor[start_token_id:nend_token_id, :])
+        label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
+        logits_filter[:, label_ids] = 0
+        sample_tensor[start_token_id:nend_token_id, :] *= logits_filter        
+        depthes[start_token_id:nend_token_id] = depth
+
+        return nend_token_id + 1 
+
+    def _decode_list_arg(self, sample_tensor, depthes, attr: SymbolAttr, token_id, depth):
+        if token_id >= sample_tensor.size(0):
+            return sample_tensor.size(0)        
+        assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
+
+        #first symbol have to be LST
+        logits_filter = torch.zeros_like(sample_tensor[token_id, :])
+        logits_filter[lst_id] = 1
+        sample_tensor[token_id, :] *= logits_filter
+        depthes[token_id] = depth
+
+        next_token_id = token_id + 1
+        one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
+        #NOTE: we do not know how long list should be
+        # at one moment we can check current logits for next_token_id and if it is probable to have NEND, we can terminate loop
+        # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
+        while next_token_id < sample_tensor.size(0):
+
+            # logits_filter = torch.zeros_like(sample_tensor[token_id, :])      
+            possible_labels = grammar_collector.groups[attr.group]
+            label_ids = [ symbol_id_map[label] for label in possible_labels ]
+            label_ids.append(nend_id)
+            prediction = torch.argmax(sample_tensor[next_token_id, label_ids])
+            symbol = id_symbol_map[prediction]
+            if symbol == NEND:
+                #enforce NEND and break 
+
+                logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
+                logits_filter[nend_id] = 1
+                sample_tensor[next_token_id, :] *= logits_filter
+                depthes[next_token_id] = depth
+                next_token_id += 1 
+                break 
+            
+            next_token_id = self._decode_symbol_arg(sample_tensor, depthes, one_attr, next_token_id, depth)
+
+        return next_token_id
+
+    def _decode_symbol_arg(self, sample_tensor, depthes, attr: SymbolAttr, token_id, depth):
+        if token_id >= sample_tensor.size(0): 
+            return sample_tensor.size(0) # we already set all logits ilter
+        assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
+        assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
+
+        #NOTE: here we let NN to pick symbol from grammar
+        logits_filter = torch.zeros_like(sample_tensor[token_id, :])      
+        possible_labels = grammar_collector.groups[attr.group]
+        label_ids = [ symbol_id_map[label] for label in possible_labels ]
+        logits_filter[label_ids] = 1
+        sample_tensor[token_id, :] *= logits_filter
+        depthes[token_id] = depth
+        prediction = torch.argmax(sample_tensor[token_id, :])
+        symbol_name = id_symbol_map[prediction]
+
+        symbol = self.symbols[symbol_name]
+        next_token_id = token_id + 1
+        for a in symbol.attrs:
+            if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                continue #tensor does not have logits for this attr
+            elif (not a.is_seq) and a.group is None:
+                next_token_id = self._decode_constant_arg(sample_tensor, depthes, a, symbol, next_token_id, depth + 1)
+            elif not a.is_seq:
+                next_token_id = self._decode_symbol_arg(sample_tensor, depthes, a, next_token_id, depth + 1) 
+            else: #list 
+                next_token_id = self._decode_list_arg(sample_tensor, depthes, a, next_token_id, depth + 1)
+        return next_token_id
 
     def forward(self, input_ids, attention_mask, **kwargs):
         gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, **kwargs)
-        gpt2_result.logits *= self.grammar_tensor #          
-        # class 
+        # attrs = [start_symbol for _ in range(gpt2_result.logits.size(0))]
+        attrs = start_symbol
+        #NOTE: next line requires much memory: batch_size * sentence_size * vocab_size
+        # logits_filter = torch.zeros_like(gpt2_result.logits, device = "cpu") # we prepare tensor on cpu and then send it to gpu
+
+        #During traversal we collect here depthes of each label according to parsed tree
+        #we use them for loss penalty later
+        depthes = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
+        for sample_id in range(gpt2_result.logits.size(0)):
+            #NOTE: each sample has its own grammar flow. Cannot be parallelized                   
+            self._decode_symbol_arg(gpt2_result.logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
+
+        # we need to reecompute loss now, because we modified logits
+        #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
+        max_depthes = torch.max(depthes, dim = -1).values.reshape(depthes.size(0), 1)
+        depthes_diffs = max_depthes - depthes
+        max_depthes_diffs = torch.max(depthes_diffs, dim = -1).values
+        max_depthes_diffs[max_depthes_diffs == 0] = 1
+        depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
+
+        if "labels" in kwargs:
+            # Shift so that tokens < n predict n
+            labels = kwargs["labels"]
+            shift_logits = gpt2_result.logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+            w = torch.ones_like(loss_view)
+
+            w += depthes_diffs_w.to(w.device)
+
+            loss_view *= w
+            loss_per_sample = loss_view.mean(axis=1)    
+            weighted_loss = loss_per_sample.mean()        
+            gpt2_result.loss = weighted_loss
         return gpt2_result 
 
 # t1 (10)  t2 t3 
