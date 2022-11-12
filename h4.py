@@ -308,7 +308,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         padding = "\t" * depth
         print(f"{padding}[{token_id}] --> {symbol_name}")
 
-        symbol = self.symbols[symbol_name]
+        symbol = grammar_collector.symbols[symbol_name]
         next_token_id = token_id + 1
         for a in symbol.attrs:
             if not a.has_values: #note that we ignore this assuming that input follows the trained schema
