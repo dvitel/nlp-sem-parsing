@@ -1,5 +1,5 @@
 import sys
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
+from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
 import evaluate
 import numpy as np
@@ -140,9 +140,9 @@ p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", 
 #print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
 #print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
 
-model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
-model.resize_token_embeddings(len(tokenizer))
-model.to("cuda")
+# model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
+# model.resize_token_embeddings(len(tokenizer))
+# model.to("cuda")
 
 bleu = evaluate.load("bleu")
 codebleu = evaluate.load("dvitel/codebleu")
@@ -179,13 +179,13 @@ lst_id = tokenizer(LST).input_ids[0]
 symbol_id_map = {symbol:tokenizer(symbol).input_ids[0] for symbol in grammar_collector.symbols.keys()}
 id_symbol_map = {v:k for k,v in symbol_id_map.items()}
 
-from transformers import GPT2LMHeadModel
 #https://docs.python.org/3/library/ast.html
 class PythonGrammarGPT2(torch.nn.Module):
-    def __init__(self, gpt2_config):
+    def __init__(self):
         super(PythonGrammarGPT2, self).__init__()
-        self.transformer = GPT2LMHeadModel(gpt2_config) 
+        self.transformer = GPT2LMHeadModel.from_pretrained(checkpoint) #TODO: pass config as in normal NN 
         self.transformer.resize_token_embeddings(len(tokenizer))
+        self.transformer.to("cuda")
         # self.max_possible_const_size = 10
         self.length_proba = 0.97 #with each new token the logit will be decreased by this value
         self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
@@ -375,6 +375,7 @@ args = TrainingArguments(
     seed = seed
 )
 
+model = PythonGrammarGPT2()
 trainer = Trainer(
     model=model,
     tokenizer=tokenizer,
