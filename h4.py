@@ -179,6 +179,8 @@ lst_id = tokenizer(LST).input_ids[0]
 symbol_id_map = {symbol:tokenizer(symbol).input_ids[0] for symbol in grammar_collector.symbols.keys()}
 id_symbol_map = {v:k for k,v in symbol_id_map.items()}
 
+torch.set_printoptions(edgeitems=100) #for debugging only
+
 #https://docs.python.org/3/library/ast.html
 class PythonGrammarGPT2(torch.nn.Module):
     def __init__(self):
@@ -205,6 +207,12 @@ class PythonGrammarGPT2(torch.nn.Module):
             sample_tensor[token_id, :] *= logits_filter
             depthes[token_id] = depth
             start_token_id = token_id + 1
+
+            #NEXT code is for debugging
+            prediction = torch.argmax(sample_tensor[token_id, :])
+            symbol_name = id_symbol_map[prediction.item()]
+            padding = "\t" * depth
+            print(f"{padding}[{token_id}] --> {symbol_name}")                  
         else:
             start_token_id = token_id
 
@@ -221,6 +229,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits_filter[nend_id] = 1
         sample_tensor[nend_token_id, :] *= logits_filter
         depthes[nend_token_id] = depth
+
+        padding = "\t" * depth
+        print(f"{padding}[{nend_token_id}] --> [NEND]")         
 
         #between start_token_id and nend_token_id we need to guarantee that there are no token from grammar 
 
@@ -243,6 +254,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         sample_tensor[token_id, :] *= logits_filter
         depthes[token_id] = depth
 
+        padding = "\t" * depth
+        print(f"{padding}[{token_id}] --> [LST]")
+
         next_token_id = token_id + 1
         one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
         #NOTE: we do not know how long list should be
@@ -264,6 +278,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 sample_tensor[next_token_id, :] *= logits_filter
                 depthes[next_token_id] = depth
                 next_token_id += 1 
+
+                padding = "\t" * depth
+                print(f"{padding}[{next_token_id}] --> [NEND]")                
                 break 
             
             next_token_id = self._decode_symbol_arg(sample_tensor, depthes, one_attr, next_token_id, depth)
@@ -285,6 +302,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         depthes[token_id] = depth
         prediction = torch.argmax(sample_tensor[token_id, :])
         symbol_name = id_symbol_map[prediction.item()]
+
+        padding = "\t" * depth
+        print(f"{padding}[{token_id}] --> {symbol_name}")
 
         symbol = self.symbols[symbol_name]
         next_token_id = token_id + 1
@@ -308,11 +328,19 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         #During traversal we collect here depthes of each label according to parsed tree
         #we use them for loss penalty later
+
+        print("Enforcing grammar...")
+
         depthes = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
         for sample_id in range(gpt2_result.logits.size(0)):
-            #NOTE: each sample has its own grammar flow. Cannot be parallelized                   
+            #NOTE: each sample has its own grammar flow. Cannot be parallelized 
+            print(f"Batch {sample_id}")
             self._decode_symbol_arg(gpt2_result.logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
+            print()
 
+        print("Enforcing grammar done...")
+
+        print("Depthes", depthes)
         # we need to reecompute loss now, because we modified logits
         #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
         max_depthes = torch.max(depthes, dim = -1).values.reshape(depthes.size(0), 1)
@@ -321,6 +349,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         max_depthes_diffs[max_depthes_diffs == 0] = 1
         depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
 
+        print("Depth weights", depthes_diffs_w)
         if "labels" in kwargs:
             # Shift so that tokens < n predict n
             labels = kwargs["labels"]
