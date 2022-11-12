@@ -220,7 +220,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         nend_logits = sample_tensor[token_id + 1:, nend_id]
         if len(nend_logits) == 0:
             return sample_tensor.size(0)
-        nend_weights = torch.tensor([ self.length_proba ** i for i in range(self.max_possible_const_size)], device = nend_logits.device)
+        nend_weights = torch.tensor([ self.length_proba ** i for i in range(len(nend_logits))], device = nend_logits.device)
         nend_positions = nend_logits * nend_weights
         n = torch.argmax(nend_positions) + 1
         nend_token_id = token_id + n #position of NEND - we are going to force NEND generation
@@ -272,7 +272,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             mask = torch.zeros_like(sample_tensor[next_token_id, :])
             mask[label_ids] = 1
             masked_t = sample_tensor[next_token_id, :] * mask
-            print("Masked p", masked_t)
+            # print("Masked p", masked_t)
             prediction = torch.argmax(masked_t)
             symbol = id_symbol_map[prediction.item()]
             if symbol == NEND:
