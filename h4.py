@@ -269,7 +269,9 @@ class PythonGrammarGPT2(torch.nn.Module):
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_id_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
-            prediction = torch.argmax(sample_tensor[next_token_id, label_ids])
+            mask = torch.zeros_like(sample_tensor[next_token_id, :])
+            mask[label_ids] = 1
+            prediction = torch.argmax(sample_tensor[next_token_id, :] * mask)
             symbol = id_symbol_map[prediction.item()]
             if symbol == NEND:
                 #enforce NEND and break 
