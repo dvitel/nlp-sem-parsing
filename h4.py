@@ -188,6 +188,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.transformer = GPT2LMHeadModel.from_pretrained(checkpoint) #TODO: pass config as in normal NN 
         self.transformer.resize_token_embeddings(len(tokenizer))
         self.transformer.to("cuda")
+        self.softmax = torch.nn.Softmax(dim=-1)
         # self.max_possible_const_size = 10
         self.length_proba = 0.97 #with each new token the logit will be decreased by this value
         self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
@@ -332,11 +333,13 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         print("Enforcing grammar...")
 
-        depthes = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
-        for sample_id in range(gpt2_result.logits.size(0)):
+        logits = self.softmax(gpt2_result.logits)
+
+        depthes = torch.ones((logits.size(0), logits.size(1)), device = "cpu")
+        for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             print(f"Batch {sample_id}")
-            self._decode_symbol_arg(gpt2_result.logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
+            self._decode_symbol_arg(logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
             print()
 
         print("Enforcing grammar done...")
@@ -354,7 +357,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if "labels" in kwargs:
             # Shift so that tokens < n predict n
             labels = kwargs["labels"]
-            shift_logits = gpt2_result.logits[..., :-1, :].contiguous()
+            shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             # Flatten the tokens
             loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
