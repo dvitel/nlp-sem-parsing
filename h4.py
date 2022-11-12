@@ -300,6 +300,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits_filter[label_ids] = 1
         sample_tensor[token_id, :] *= logits_filter
         depthes[token_id] = depth
+        print(sample_tensor)
         prediction = torch.argmax(sample_tensor[token_id, :])
         symbol_name = id_symbol_map[prediction.item()]
 
