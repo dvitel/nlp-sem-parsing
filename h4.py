@@ -389,13 +389,13 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         predictions = torch.argmax(grammar_logits, dim=-1).cpu()
         label_ids = labels.cpu()
-        for slabels, sample in zip(label_ids, predictions):
+        for i, (slabels, sample) in enumerate(zip(label_ids, predictions)):
             print("P:")
-            for l, p in zip(slabels, sample):
+            for j, (l, p) in enumerate(zip(slabels, sample)):
                 lt = tokenizer.decode(l) if l != -100 else None
-                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p}")            
+                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p} {predictions[i, j, p]}")            
             print()
-        exit(1)
+            exit(1)
 
         # print("Enforcing grammar done...")
 
