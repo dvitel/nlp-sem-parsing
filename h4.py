@@ -437,7 +437,7 @@ args = TrainingArguments(
     fp16=True, 
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
-    seed = seed
+    seed = seed, label_names = ["labels"]
 )
 
 model = PythonGrammarGPT2()
