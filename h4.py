@@ -377,7 +377,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
-            token_id = (labels[sample_id] != -100).nonzero()[0].item()
+            token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
             print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id], logits[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
@@ -393,7 +393,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             print("P:")
             for l, p in zip(slabels, sample):
                 lt = tokenizer.decode(l) if l != -100 else None
-                print(f"\t{lt} {tokenizer.decode(p)}")            
+                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p}")            
             print()
         exit(1)
 
