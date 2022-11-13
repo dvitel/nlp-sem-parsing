@@ -95,8 +95,8 @@ max_length = 912
 # max_length = 32 #for debugging
 batch_size = 4
 num_epochs = 100
-# eval_steps = 800
-eval_steps = 8 #for debugging
+eval_steps = 800
+# eval_steps = 8 #for debugging
 learning_rate = 2e-5
 seed = 17
 
@@ -382,7 +382,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
-            print("First token is ", token_id)
+            # print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id], logits[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
             # print()
