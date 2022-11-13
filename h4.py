@@ -9,6 +9,8 @@ import torch
 import astunparse
 from grammar import LST, NEND, GrammarCollector, Symbol, SymbolAttr, start_symbol
 
+# torch.autograd.set_detect_anomaly(True)
+
 class NameRemover(ast.NodeVisitor):
     ''' TODO; reverse mode or renaming back '''
     def __init__(self) -> None:
@@ -207,7 +209,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # logits_filter = torch.zeros_like(sample_tensor[token_id, :]) #token id is position of [type] token         
             logits_filter = grammar_mask[token_id, :]
             logits_filter[label_ids] = 1
-            symbol_tensor = sample_tensor[token_id, :] = logits_filter
+            symbol_tensor = sample_tensor[token_id, :] * logits_filter
             depthes[token_id] = depth
             start_token_id = token_id + 1
 
