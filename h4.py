@@ -340,9 +340,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1)
         return next_token_id
 
-    def forward(self, input_ids, attention_mask, **kwargs):
-        print("Keys:", list(kwargs.keys()), file = sys.stderr)
-        gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, **kwargs)
+    def forward(self, input_ids, attention_mask, labels, **kwargs):
+        # print("Keys:", list(kwargs.keys()), file = sys.stderr)
+        gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, labels = labels, **kwargs)
         # attrs = [start_symbol for _ in range(gpt2_result.logits.size(0))]
         attrs = start_symbol
         #NOTE: next line requires much memory: batch_size * sentence_size * vocab_size
@@ -379,24 +379,24 @@ class PythonGrammarGPT2(torch.nn.Module):
         depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
 
         # print("Depth weights", depthes_diffs_w)
-        if "labels" in kwargs:
+        # if "labels" in kwargs:
             # Shift so that tokens < n predict n
-            labels = kwargs["labels"]
-            shift_logits = grammar_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            shift_depth = depthes_diffs_w[..., :-1]
-            # Flatten the tokens
-            loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
-            w = torch.ones_like(loss_view)
+            # labels = kwargs["labels"]
+        shift_logits = grammar_logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        shift_depth = depthes_diffs_w[..., :-1]
+        # Flatten the tokens
+        loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+        w = torch.ones_like(loss_view)
 
-            w += shift_depth.to(w.device)
+        w += shift_depth.to(w.device)
 
-            loss_view *= w
-            loss_per_sample = loss_view.mean(axis=1)    
-            weighted_loss = loss_per_sample.mean()        
-            gpt2_result.loss = weighted_loss
+        loss_view *= w
+        loss_per_sample = loss_view.mean(axis=1)    
+        weighted_loss = loss_per_sample.mean()        
+        gpt2_result.loss = weighted_loss
         return gpt2_result 
 
 # t1 (10)  t2 t3 
