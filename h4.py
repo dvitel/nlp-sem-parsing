@@ -196,7 +196,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.transformer.to("cuda")
         self.softmax = torch.nn.Softmax(dim=-1)
         # self.max_possible_const_size = 10
-        self.length_proba = 0.97 #with each new token the logit will be decreased by this value
+        self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
         self.enable_logging = False
         #logits batch_size x sentence_length x size of vocab (logits)        
@@ -391,15 +391,15 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("GLogits", grammar_logits)
 
-        predictions = torch.argmax(grammar_logits, dim=-1).cpu()
-        label_ids = labels.cpu()
-        for i, (slabels, sample) in enumerate(zip(label_ids, predictions)):
-            print("P:")
-            for j, (l, p) in enumerate(zip(slabels, sample)):
-                lt = tokenizer.decode(l) if l != -100 else None
-                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p} {grammar_logits[i, j, p]}  {grammar_mask[i, j, p]}  {logits[i, j, p]}")            
-            print()
-            exit(1)
+        # predictions = torch.argmax(grammar_logits, dim=-1).cpu()
+        # label_ids = labels.cpu()
+        # for i, (slabels, sample) in enumerate(zip(label_ids, predictions)):
+        #     print("P:")
+        #     for j, (l, p) in enumerate(zip(slabels, sample)):
+        #         lt = tokenizer.decode(l) if l != -100 else None
+        #         print(f"\t{lt} {l}    {tokenizer.decode(p)} {p} {grammar_logits[i, j, p]}  {grammar_mask[i, j, p]}  {logits[i, j, p]}")            
+        #     print()
+        #     exit(1)
 
         # print("Enforcing grammar done...")
 
