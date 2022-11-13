@@ -378,6 +378,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item()
+            print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id, :, :], logits[sample_id, :, :], depthes[sample_id, :], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
             # print()
@@ -386,10 +387,12 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("GLogits", grammar_logits)
 
-        # predictions = torch.argmax(grammar_logits, dim=-1).cpu()
-        # for sample in predictions:
-        #     txt = [tokenizer.decode(p) for p in sample]
-            # print("Pred:", txt)
+        predictions = torch.argmax(grammar_logits, dim=-1).cpu()
+        for sample in predictions:
+            txt = [tokenizer.decode(p) for p in sample]
+            print("P:", txt)
+            print()
+        exit(1)
 
         # print("Enforcing grammar done...")
 
