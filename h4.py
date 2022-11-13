@@ -392,7 +392,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         for slabels, sample in zip(label_ids, predictions):
             print("P:")
             for l, p in zip(slabels, sample):
-                print(f"\t{tokenizer.decode(l)} {tokenizer.decode(p)}")            
+                lt = tokenizer.decode(l) if l != -100 else None
+                print(f"\t{lt} {tokenizer.decode(p)}")            
             print()
         exit(1)
 
