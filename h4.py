@@ -324,8 +324,14 @@ class PythonGrammarGPT2(torch.nn.Module):
         symbol_tensor = sample_tensor[token_id, :] * logits_filter
         depthes[token_id] = depth
         # print(sample_tensor[token_id, :])
-        prediction = torch.argmax(symbol_tensor)
-        symbol_name = id_symbol_map[prediction.item()]
+        prediction = torch.argmax(symbol_tensor).item()
+        try:
+            symbol_name = id_symbol_map[prediction]
+        except KeyError as e:
+            print(e)
+            ptxt = tokenizer.decode(prediction)
+            print(f"Tried token {ptxt}. Possible: {possible_labels}. Ids: {label_ids}")
+            raise e
 
         if self.enable_logging:
             padding = "\t" * depth
