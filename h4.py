@@ -1,4 +1,5 @@
 import sys
+from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
 import evaluate
@@ -340,9 +341,14 @@ class PythonGrammarGPT2(torch.nn.Module):
                 next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1)
         return next_token_id
 
-    def forward(self, input_ids, attention_mask, labels, **kwargs):
+    def forward(
+        self, 
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None
+    ):
         # print("Keys:", list(kwargs.keys()), file = sys.stderr)
-        gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, labels = labels, **kwargs)
+        gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, labels = labels)
         # attrs = [start_symbol for _ in range(gpt2_result.logits.size(0))]
         attrs = start_symbol
         #NOTE: next line requires much memory: batch_size * sentence_size * vocab_size
