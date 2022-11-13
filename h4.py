@@ -91,8 +91,8 @@ dev_file_name = "dev_hs"
 out_dir = "out/h4"
 result_path = "result/h4"
 checkpoint = "distilgpt2"
-# max_length = 912
-max_length = 32 #for debugging
+max_length = 912
+# max_length = 32 #for debugging
 batch_size = 4
 num_epochs = 100
 # eval_steps = 800
@@ -366,11 +366,13 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depthes = torch.ones((logits.size(0), logits.size(1)), device = "cpu")
         grammar_mask = torch.zeros_like(logits)
+        grammar_mask[labels == -100] = 1
         for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
-            self._decode_symbol_arg(grammar_mask[sample_id, :, :], logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
+            token_id = (labels[sample_id] != -100).nonzero()[0].item()
+            self._decode_symbol_arg(grammar_mask[sample_id, :, :], logits[sample_id, :, :], depthes[sample_id, :], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
             # print()
 
@@ -431,7 +433,7 @@ def custom_data_collator(*args):
     res = data_collator(*args)
     for l in res['labels']:
         i = 0
-        while l[i] != -100:
+        while i < len(l) and l[i] != -100:
             l[i] = -100 
             i += 1 
     return res
