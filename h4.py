@@ -363,7 +363,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             labels = kwargs["labels"]
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            shift_depth = depthes_diffs_w[:-1]
+            shift_depth = depthes_diffs_w[..., :-1]
             # Flatten the tokens
             loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
