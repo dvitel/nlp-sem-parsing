@@ -372,12 +372,13 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depthes = torch.ones((logits.size(0), logits.size(1)), device = "cpu")
         grammar_mask = torch.zeros_like(logits)
-        grammar_mask[labels == -100] = 1
+        grammar_mask[labels == -100] = 1        
         for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
+            grammar_mask[sample_id, token_id] = 0
             print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id], logits[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
