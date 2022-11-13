@@ -212,7 +212,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids = [ symbol_id_map[label] for label in grammar_collector.non_ast_types.keys() ]
             # logits_filter = torch.zeros_like(sample_tensor[token_id, :]) #token id is position of [type] token         
             logits_filter = grammar_mask[token_id, :]
-            logits_filter = 0
+            logits_filter[:] = 0
             logits_filter[label_ids] = 1
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
             depthes[token_id] = depth
@@ -238,7 +238,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #setting up filter for nend        
         # logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
         logits_filter = grammar_mask[nend_token_id, :]
-        logits_filter = 0
+        logits_filter[:] = 0
         logits_filter[nend_id] = 1
         # sample_tensor[nend_token_id, :] *= logits_filter
         depthes[nend_token_id] = depth
@@ -267,7 +267,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #first symbol have to be LST
         # logits_filter = torch.zeros_like(sample_tensor[token_id, :])
         logits_filter = grammar_mask[token_id, :]
-        logits_filter = 0
+        logits_filter[:] = 0
         logits_filter[lst_id] = 1
         # sample_tensor[token_id, :] *= logits_filter
         depthes[token_id] = depth
@@ -298,7 +298,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
                 # logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
                 logits_filter = grammar_mask[next_token_id, :]
-                logits_filter = 0
+                logits_filter[:] = 0
                 logits_filter[nend_id] = 1
                 # sample_tensor[next_token_id, :] *= logits_filter
                 depthes[next_token_id] = depth
@@ -322,7 +322,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #NOTE: here we let NN to pick symbol from grammar
         # logits_filter = torch.zeros_like(sample_tensor[token_id, :])              
         logits_filter = grammar_mask[token_id, :]
-        logits_filter = 0
+        logits_filter[:] = 0
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_id_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
