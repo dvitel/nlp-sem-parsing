@@ -94,7 +94,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 100
-eval_steps = 10
+eval_steps = 800
 learning_rate = 2e-5
 seed = 17
 
@@ -459,6 +459,6 @@ trainer = Trainer(
     eval_dataset=p_dev_set,
 )
 
-trainer.train()
+trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
 trainer.save_model(result_path)
