@@ -212,6 +212,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids = [ symbol_id_map[label] for label in grammar_collector.non_ast_types.keys() ]
             # logits_filter = torch.zeros_like(sample_tensor[token_id, :]) #token id is position of [type] token         
             logits_filter = grammar_mask[token_id, :]
+            logits_filter = 0
             logits_filter[label_ids] = 1
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
             depthes[token_id] = depth
@@ -237,6 +238,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #setting up filter for nend        
         # logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
         logits_filter = grammar_mask[nend_token_id, :]
+        logits_filter = 0
         logits_filter[nend_id] = 1
         # sample_tensor[nend_token_id, :] *= logits_filter
         depthes[nend_token_id] = depth
@@ -249,7 +251,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # logits_filter = torch.ones_like(sample_tensor[start_token_id:nend_token_id, :])
         logits_filter = grammar_mask[start_token_id:nend_token_id, :]
-        logits_filter[:, :] = 1.
+        # logits_filter[:, :] = 1.
         label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
         logits_filter[:, label_ids] = 0
         # sample_tensor[start_token_id:nend_token_id, :] *= logits_filter        
@@ -265,6 +267,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #first symbol have to be LST
         # logits_filter = torch.zeros_like(sample_tensor[token_id, :])
         logits_filter = grammar_mask[token_id, :]
+        logits_filter = 0
         logits_filter[lst_id] = 1
         # sample_tensor[token_id, :] *= logits_filter
         depthes[token_id] = depth
@@ -295,6 +298,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
                 # logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
                 logits_filter = grammar_mask[next_token_id, :]
+                logits_filter = 0
                 logits_filter[nend_id] = 1
                 # sample_tensor[next_token_id, :] *= logits_filter
                 depthes[next_token_id] = depth
@@ -316,8 +320,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
 
         #NOTE: here we let NN to pick symbol from grammar
-        # logits_filter = torch.zeros_like(sample_tensor[token_id, :])      
+        # logits_filter = torch.zeros_like(sample_tensor[token_id, :])              
         logits_filter = grammar_mask[token_id, :]
+        logits_filter = 0
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_id_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
@@ -371,14 +376,12 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits = self.softmax(gpt2_result.logits)
 
         depthes = torch.ones((logits.size(0), logits.size(1)), device = "cpu")
-        grammar_mask = torch.zeros_like(logits)
-        grammar_mask[labels == -100] = 1        
+        grammar_mask = torch.ones_like(logits)
         for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
-            grammar_mask[sample_id, token_id] = 0
             print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id], logits[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
