@@ -251,8 +251,9 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # logits_filter = torch.ones_like(sample_tensor[start_token_id:nend_token_id, :])
         logits_filter = grammar_mask[start_token_id:nend_token_id, :]
-        # logits_filter[:, :] = 1.
+        logits_filter[:, :] = 1
         label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
+        label_ids.remove(nend_id)
         logits_filter[:, label_ids] = 0
         # sample_tensor[start_token_id:nend_token_id, :] *= logits_filter        
         depthes[start_token_id:nend_token_id] = depth
@@ -289,10 +290,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids.append(nend_id)
             mask = torch.zeros_like(sample_tensor[next_token_id, :])
             mask[label_ids] = 1
-            masked_t = sample_tensor[next_token_id, :] * mask
+            masked_t = sample_tensor[next_token_id, :] * mask + mask
             # print("Masked p", masked_t)
-            prediction = torch.argmax(masked_t)
-            symbol = id_symbol_map[prediction.item()]
+            prediction = torch.argmax(masked_t).item()
+            symbol = id_symbol_map[prediction]
             if symbol == NEND:
                 #enforce NEND and break 
 
@@ -326,17 +327,11 @@ class PythonGrammarGPT2(torch.nn.Module):
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_id_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
-        symbol_tensor = sample_tensor[token_id, :] * logits_filter
+        symbol_tensor = sample_tensor[token_id, :] * logits_filter + logits_filter
         depthes[token_id] = depth
         # print(sample_tensor[token_id, :])
         prediction = torch.argmax(symbol_tensor).item()
-        try:
-            symbol_name = id_symbol_map[prediction]
-        except KeyError as e:
-            print(e)
-            ptxt = tokenizer.decode(prediction)
-            print(f"Tried token {ptxt}. Possible: {possible_labels}. Ids: {label_ids}")
-            raise e
+        symbol_name = id_symbol_map[prediction]
 
         if self.enable_logging:
             padding = "\t" * depth
