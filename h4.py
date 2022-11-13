@@ -359,9 +359,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             print(f"Batch {sample_id}")
-            self.enable_logging = sample_id == 0                
+            # self.enable_logging = sample_id == 0                
             self._decode_symbol_arg(grammar_mask[sample_id, :, :], logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
-            self.enable_logging = False
+            # self.enable_logging = False
             print()
 
         grammar_logits = logits * grammar_mask
