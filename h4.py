@@ -1,6 +1,7 @@
 import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
+from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
 from datasets import Dataset
 import evaluate
 import numpy as np
@@ -93,7 +94,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 100
-eval_steps = 800
+eval_steps = 10
 learning_rate = 2e-5
 seed = 17
 
@@ -402,8 +403,15 @@ class PythonGrammarGPT2(torch.nn.Module):
         loss_view *= w
         loss_per_sample = loss_view.mean(axis=1)    
         weighted_loss = loss_per_sample.mean()        
-        gpt2_result.loss = weighted_loss
-        return gpt2_result 
+        # gpt2_result.loss = weighted_loss
+        return CausalLMOutputWithCrossAttentions(
+            loss = weighted_loss,
+            logits = grammar_logits,
+            past_key_values = gpt2_result.past_key_values,
+            hidden_states = gpt2_result.hidden_states,
+            attentions = gpt2_result.attentions,
+            cross_attentions = gpt2_result.cross_attentions
+        ) 
 
 # t1 (10)  t2 t3 
 
