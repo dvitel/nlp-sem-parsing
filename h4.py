@@ -341,6 +341,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         return next_token_id
 
     def forward(self, input_ids, attention_mask, **kwargs):
+        print("Keys:", list(kwargs.keys()), file = sys.stderr)
         gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, **kwargs)
         # attrs = [start_symbol for _ in range(gpt2_result.logits.size(0))]
         attrs = start_symbol
@@ -350,7 +351,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #During traversal we collect here depthes of each label according to parsed tree
         #we use them for loss penalty later
 
-        print("Enforcing grammar...")
+        # print("Enforcing grammar...")
 
         logits = self.softmax(gpt2_result.logits)
 
@@ -358,15 +359,15 @@ class PythonGrammarGPT2(torch.nn.Module):
         grammar_mask = torch.zeros_like(logits)
         for sample_id in range(logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
-            print(f"Batch {sample_id}")
+            # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             self._decode_symbol_arg(grammar_mask[sample_id, :, :], logits[sample_id, :, :], depthes[sample_id, :], attrs, 0, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
-            print()
+            # print()
 
         grammar_logits = logits * grammar_mask
 
-        print("Enforcing grammar done...")
+        # print("Enforcing grammar done...")
 
         # print("Depthes", depthes)
         # we need to reecompute loss now, because we modified logits
