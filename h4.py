@@ -235,11 +235,11 @@ class PythonGrammarGPT2(torch.nn.Module):
         n = torch.argmax(nend_positions) + 1
         nend_token_id = token_id + n #position of NEND - we are going to force NEND generation
         
-        #setting up filter for nend        
-        # logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
-        logits_filter = grammar_mask[nend_token_id, :]
-        logits_filter[:] = 0
-        logits_filter[nend_id] = 1
+        # #setting up filter for nend        
+        # # logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
+        # logits_filter = grammar_mask[nend_token_id, :]
+        # logits_filter[:] = 0
+        # logits_filter[nend_id] = 1
         # sample_tensor[nend_token_id, :] *= logits_filter
         depthes[nend_token_id] = depth
 
@@ -296,10 +296,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             if symbol == NEND:
                 #enforce NEND and break 
 
-                # logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
-                logits_filter = grammar_mask[next_token_id, :]
-                logits_filter[:] = 0
-                logits_filter[nend_id] = 1
+                # # logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
+                # logits_filter = grammar_mask[next_token_id, :]
+                # logits_filter[:] = 0
+                # logits_filter[nend_id] = 1
                 # sample_tensor[next_token_id, :] *= logits_filter
                 depthes[next_token_id] = depth
                 next_token_id += 1 
