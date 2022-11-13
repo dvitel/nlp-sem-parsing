@@ -154,7 +154,7 @@ chrF = evaluate.load("chrf")
 exact_match = evaluate.load("exact_match")
 def compute_metrics(eval_pred):
     shift_labels = eval_pred.label_ids[...,1:]
-    shift_logits = eval_pred.predictions[..., :-1, :]
+    shift_logits = eval_pred.predictions[0][..., :-1, :]
     prediction_labels = np.argmax(shift_logits, axis=-1)   
     predictions = []
     references = []
