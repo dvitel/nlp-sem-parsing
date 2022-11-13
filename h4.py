@@ -384,12 +384,12 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         grammar_logits = logits * grammar_mask
 
-        print("GLogits", grammar_logits)
+        # print("GLogits", grammar_logits)
 
-        predictions = torch.argmax(grammar_logits, dim=-1).cpu()
-        for sample in predictions:
-            txt = [tokenizer.decode(p) for p in sample]
-            print("Pred:", txt)
+        # predictions = torch.argmax(grammar_logits, dim=-1).cpu()
+        # for sample in predictions:
+        #     txt = [tokenizer.decode(p) for p in sample]
+            # print("Pred:", txt)
 
         # print("Enforcing grammar done...")
 
