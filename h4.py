@@ -393,7 +393,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             print("P:")
             for j, (l, p) in enumerate(zip(slabels, sample)):
                 lt = tokenizer.decode(l) if l != -100 else None
-                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p} {predictions[i, j, p]}")            
+                print(f"\t{lt} {l}    {tokenizer.decode(p)} {p} {grammar_logits[i, j, p]}")            
             print()
             exit(1)
 
