@@ -91,10 +91,12 @@ dev_file_name = "dev_hs"
 out_dir = "out/h4"
 result_path = "result/h4"
 checkpoint = "distilgpt2"
-max_length = 912
+# max_length = 912
+max_length = 32 #for debugging
 batch_size = 4
 num_epochs = 100
-eval_steps = 800
+# eval_steps = 800
+eval_steps = 8 #for debugging
 learning_rate = 2e-5
 seed = 17
 
@@ -373,6 +375,13 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print()
 
         grammar_logits = logits * grammar_mask
+
+        print("GLogits", grammar_logits)
+
+        predictions = torch.argmax(grammar_logits, dim=-1).cpu()
+        for sample in predictions:
+            txt = [tokenizer.decode(p) for p in sample]
+            print("Pred:", txt)
 
         # print("Enforcing grammar done...")
 
