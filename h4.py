@@ -196,7 +196,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.transformer.to("cuda")
         self.softmax = torch.nn.Softmax(dim=-1)
         # self.max_possible_const_size = 10
-        self.length_proba = 0.95 #with each new token the logit will be decreased by this value
+        # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
         self.enable_logging = False
         #logits batch_size x sentence_length x size of vocab (logits)        
@@ -216,7 +216,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[label_ids] = 1
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
             depthes[token_id] = depth
-            start_token_id = token_id + 1
+            next_token_id = token_id + 1
 
             #NEXT code is for debugging
             if self.enable_logging:
@@ -225,40 +225,29 @@ class PythonGrammarGPT2(torch.nn.Module):
                 padding = "\t" * depth
                 print(f"{padding}[{token_id}] --> {symbol_name}")                  
         else:
-            start_token_id = token_id
+            next_token_id = token_id
 
-        nend_logits = sample_tensor[token_id + 1:, nend_id]
-        if len(nend_logits) == 0:
-            return sample_tensor.size(0)
-        nend_weights = torch.tensor([ self.length_proba ** i for i in range(len(nend_logits))], device = nend_logits.device)
-        nend_positions = nend_logits * nend_weights
-        n = torch.argmax(nend_positions) + 1
-        nend_token_id = token_id + n #position of NEND - we are going to force NEND generation
-        
-        # #setting up filter for nend        
-        # # logits_filter = torch.zeros_like(sample_tensor[nend_token_id, :])
-        # logits_filter = grammar_mask[nend_token_id, :]
-        # logits_filter[:] = 0
-        # logits_filter[nend_id] = 1
-        # sample_tensor[nend_token_id, :] *= logits_filter
-        depthes[nend_token_id] = depth
+        while next_token_id < sample_tensor.size(0):
 
-        if self.enable_logging:
-            padding = "\t" * depth
-            print(f"{padding}[{nend_token_id}] --> [NEND]")         
+            logits_filter = grammar_mask[next_token_id, :]
+            logits_filter[:] = 1
+            label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
+            label_ids.remove(nend_id)
+            logits_filter[label_ids] = 0
+            depthes[next_token_id] = depth
 
-        #between start_token_id and nend_token_id we need to guarantee that there are no token from grammar 
+            symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
+            # print("Masked p", masked_t)
+            prediction = torch.argmax(symbol_tensor).item()
+            symbol = id_symbol_map[prediction]
+            next_token_id += 1 
+            if symbol == NEND:
+                if self.enable_logging:
+                    padding = "\t" * depth
+                    print(f"{padding}[{next_token_id}] --> [NEND]")                
+                break             
 
-        # logits_filter = torch.ones_like(sample_tensor[start_token_id:nend_token_id, :])
-        logits_filter = grammar_mask[start_token_id:nend_token_id, :]
-        logits_filter[:, :] = 1
-        label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
-        label_ids.remove(nend_id)
-        logits_filter[:, label_ids] = 0
-        # sample_tensor[start_token_id:nend_token_id, :] *= logits_filter        
-        depthes[start_token_id:nend_token_id] = depth
-
-        return nend_token_id + 1 
+        return next_token_id
 
     def _decode_list_arg(self, grammar_mask, sample_tensor, depthes, attr: SymbolAttr, token_id, depth):
         if token_id >= sample_tensor.size(0):
@@ -285,15 +274,23 @@ class PythonGrammarGPT2(torch.nn.Module):
         while next_token_id < sample_tensor.size(0):
 
             # logits_filter = torch.zeros_like(sample_tensor[token_id, :])      
+
+            logits_filter = grammar_mask[next_token_id, :]
+            logits_filter[:] = 0
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_id_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
-            mask = torch.zeros_like(sample_tensor[next_token_id, :])
-            mask[label_ids] = 1
-            masked_t = sample_tensor[next_token_id, :] * mask + mask
+            logits_filter[label_ids] = 1
+            depthes[next_token_id] = depth
+
+            
+            # mask = torch.zeros_like(sample_tensor[next_token_id, :])
+            # mask[label_ids] = 1
+            symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
-            prediction = torch.argmax(masked_t).item()
+            prediction = torch.argmax(symbol_tensor).item()
             symbol = id_symbol_map[prediction]
+            next_token_id += 1 
             if symbol == NEND:
                 #enforce NEND and break 
 
@@ -302,8 +299,8 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # logits_filter[:] = 0
                 # logits_filter[nend_id] = 1
                 # sample_tensor[next_token_id, :] *= logits_filter
-                depthes[next_token_id] = depth
-                next_token_id += 1 
+                # depthes[next_token_id] = depth
+                # next_token_id += 1 
 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -327,7 +324,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_id_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
-        symbol_tensor = sample_tensor[token_id, :] * logits_filter + logits_filter
+        symbol_tensor = sample_tensor[token_id] * logits_filter + logits_filter
         depthes[token_id] = depth
         # print(sample_tensor[token_id, :])
         prediction = torch.argmax(symbol_tensor).item()
