@@ -194,7 +194,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.transformer = GPT2LMHeadModel.from_pretrained(checkpoint) #TODO: pass config as in normal NN 
         self.transformer.resize_token_embeddings(len(tokenizer))
         self.transformer.to("cuda")
-        self.softmax = torch.nn.Softmax(dim=-1)
+        # self.softmax = torch.nn.Softmax(dim=-1) #cannot learn if put last
         # self.max_possible_const_size = 10
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
@@ -377,21 +377,21 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("Enforcing grammar...")
 
-        logits = self.softmax(gpt2_result.logits)
+        scores = torch.nn.functional.softmax(gpt2_result.logits, dim=-1)
 
-        depthes = torch.ones((logits.size(0), logits.size(1)), device = "cpu")
-        grammar_mask = torch.ones_like(logits)
-        for sample_id in range(logits.size(0)):
+        depthes = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
+        grammar_mask = torch.ones_like(gpt2_result.logits)
+        for sample_id in range(gpt2_result.logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
             # print("First token is ", token_id)
-            self._decode_symbol_arg(grammar_mask[sample_id], logits[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
+            self._decode_symbol_arg(grammar_mask[sample_id], scores[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
             # self.enable_logging = False
             # print()
 
-        grammar_logits = logits * grammar_mask
+        grammar_logits = gpt2_result.logits * grammar_mask
 
         # print("GLogits", grammar_logits)
 
