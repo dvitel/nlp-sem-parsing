@@ -101,7 +101,7 @@ learning_rate = 2e-5
 seed = 17
 
 np.random.seed(seed)
-# torch.manual_seed(seed)
+torch.manual_seed(seed)
 
 
 def read_samples(file_name):
