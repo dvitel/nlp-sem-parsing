@@ -409,12 +409,12 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("Depthes", depthes)
         # we need to reecompute loss now, because we modified logits
-        #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
-        max_depthes = torch.max(depthes, dim = -1).values.reshape(depthes.size(0), 1)
-        depthes_diffs = max_depthes - depthes
-        max_depthes_diffs = torch.max(depthes_diffs, dim = -1).values
-        max_depthes_diffs[max_depthes_diffs == 0] = 1
-        depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
+        # #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
+        # max_depthes = torch.max(depthes, dim = -1).values.reshape(depthes.size(0), 1)
+        # depthes_diffs = max_depthes - depthes
+        # max_depthes_diffs = torch.max(depthes_diffs, dim = -1).values
+        # max_depthes_diffs[max_depthes_diffs == 0] = 1
+        # depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
 
         # print("Depth weights", depthes_diffs_w)
         # if "labels" in kwargs:
@@ -422,21 +422,20 @@ class PythonGrammarGPT2(torch.nn.Module):
             # labels = kwargs["labels"]
         shift_logits = grammar_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
-        shift_depth = depthes_diffs_w[..., :-1]
+        # shift_depth = depthes_diffs_w[..., :-1]
         # Flatten the tokens
-        loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
+        loss_fct = torch.nn.CrossEntropyLoss() #reduce = False)
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
-        w = torch.ones_like(loss_view)
+        # loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+        # w = torch.ones_like(loss_view)
 
-        w += shift_depth.to(w.device)
+        # w += shift_depth.to(w.device)
 
-        loss_view *= w
-        loss_per_sample = loss_view.mean(axis=1)    
-        weighted_loss = loss_per_sample.mean()        
-        # gpt2_result.loss = weighted_loss
+        # loss_view *= w
+        # loss_per_sample = loss_view.mean(axis=1)    
+        # weighted_loss = loss_per_sample.mean()        
         return CausalLMOutputWithCrossAttentions(
-            loss = weighted_loss,
+            loss = loss,
             logits = grammar_logits,
             past_key_values = gpt2_result.past_key_values,
             hidden_states = gpt2_result.hidden_states,
