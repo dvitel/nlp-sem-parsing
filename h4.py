@@ -423,13 +423,17 @@ class PythonGrammarGPT2(torch.nn.Module):
         shift_logits = grammar_logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         shift_depth = depthes_diffs_w[..., :-1]
+        predictions = torch.argmax(shift_logits, dim=-1)
+        misses = (shift_labels != -100).float()
+        misses *= (predictions != shift_labels).float()
+
         # Flatten the tokens
         loss_fct = torch.nn.CrossEntropyLoss(reduce = False)
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
         w = torch.ones_like(loss_view)
 
-        w += shift_depth.to(w.device)
+        w += (shift_depth.to(w.device) * misses)
 
         loss_view *= w
         loss_per_sample = loss_view.mean(axis=1)    
