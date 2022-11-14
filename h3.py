@@ -1,3 +1,4 @@
+""" h2 == h0 with light name removing """
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
@@ -20,8 +21,11 @@ class NameRemover(ast.NodeVisitor):
         self.reset()
     def reset(self):
         self.mapping = {}
+        self.class_mapping = {}
         self.rev_mapping = {}
-        self.i = 0        
+        self.rev_class_mapping = {}
+        self.i = 0   
+        self.cls_i = 0
     def add_to_vocab(self, name, token = None):
         if name not in self.mapping:
             new_name = self.mapping[name] = token or ("[v" + str(self.i) + "]")
@@ -33,22 +37,29 @@ class NameRemover(ast.NodeVisitor):
             node.id = self.add_to_vocab(node.id)
         elif node.id in self.mapping:
             node.id = self.mapping[node.id]
+        elif node.id in self.class_mapping:
+            node.id = self.class_mapping[node.id]
     def generic_visit(self, node):
         if isinstance(node, ast.ClassDef):
-            node.name = self.add_to_vocab(node.name, token = CLSN)
+            if node.name not in self.class_mapping:
+                new_name = self.class_mapping[node.name] = "[CLS" + str(self.cls_i) + "]"
+                self.rev_class_mapping[new_name] = node.name
+                self.cls_i += 1
+            node.name = self.class_mapping[node.name]
         if isinstance(node, ast.arguments):
             for arg in node.args:
                 if isinstance(arg, ast.arg) and arg.arg != "self":
                     arg.arg = self.add_to_vocab(arg.arg)
         return super().generic_visit(node)
 
-nameRemover = NameRemover()
-name_symbols = set([CLSN])
+name_remover = NameRemover()
+name_symbols = set()
 def process(line):
     tree = ast.parse(line)
-    nameRemover.reset()
-    nameRemover.visit(tree)
-    name_symbols.update(nameRemover.rev_mapping.keys())
+    name_remover.reset()
+    name_remover.visit(tree)
+    name_symbols.update(name_remover.rev_mapping.keys())
+    name_symbols.update(name_remover.rev_class_mapping.keys())
     res = astunparse.unparse(tree)
     return res.strip().replace("    ", "\t").replace("\n\n", "\n") #.replace(".__init__", INIT).replace("()", NOARG)
 
@@ -80,8 +91,8 @@ result_path = "result/h3"
 checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
-num_epochs = 100
-eval_steps = 800
+num_epochs = 200
+eval_steps = 1600
 learning_rate = 2e-5
 seed = 17
 

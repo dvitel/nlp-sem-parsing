@@ -1,3 +1,4 @@
+""" h0 - baseline - no python code preprocessing """
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from datasets import Dataset
@@ -18,8 +19,8 @@ result_path = "result/h0"
 checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
-num_epochs = 100
-eval_steps = 800
+num_epochs = 200
+eval_steps = 1600
 learning_rate = 2e-5
 seed = 17
 

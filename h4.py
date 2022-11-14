@@ -1,3 +1,4 @@
+""" h4 == h0 with light name removing and grammar layer on top. AST like structure """
 import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -94,8 +95,8 @@ checkpoint = "distilgpt2"
 max_length = 912
 # max_length = 32 #for debugging
 batch_size = 4
-num_epochs = 100
-eval_steps = 800
+num_epochs = 200
+eval_steps = 1600
 # eval_steps = 8 #for debugging
 learning_rate = 2e-5
 seed = 17
