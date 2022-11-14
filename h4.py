@@ -220,8 +220,8 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             #NEXT code is for debugging
             if self.enable_logging:
-                prediction = torch.argmax(symbol_tensor)
-                symbol_name = id_symbol_map[prediction.item()]
+                prediction = torch.argmax(symbol_tensor).item()
+                symbol_name = id_symbol_map[prediction]
                 padding = "\t" * depth
                 print(f"{padding}[{token_id}] --> {symbol_name}")                  
         else:
@@ -239,9 +239,11 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
-            symbol = id_symbol_map[prediction]
+            # if prediction not in id_symbol_map:
+            #     print(f"Cannot find {prediction} {tokenizer.decode(prediction)} in id_symbol_map", file = sys.stderr)
+            # symbol = id_symbol_map[prediction]
             next_token_id += 1 
-            if symbol == NEND:
+            if prediction == nend_id:
                 if self.enable_logging:
                     padding = "\t" * depth
                     print(f"{padding}[{next_token_id}] --> [NEND]")                
