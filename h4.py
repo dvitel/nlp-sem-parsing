@@ -289,9 +289,9 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
-            symbol = id_symbol_map[prediction]
+            symbol_name = id_symbol_map[prediction]
             next_token_id += 1 
-            if symbol == NEND:
+            if symbol_name == NEND:
                 #enforce NEND and break 
 
                 # # logits_filter = torch.zeros_like(sample_tensor[next_token_id, :])
@@ -307,7 +307,17 @@ class PythonGrammarGPT2(torch.nn.Module):
                     print(f"{padding}[{next_token_id}] --> [NEND]")                
                 break 
             
-            next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, one_attr, next_token_id, depth)
+            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, one_attr, next_token_id, depth)
+            symbol = grammar_collector.symbols[symbol_name]
+            for a in symbol.attrs:
+                if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                    continue #tensor does not have logits for this attr
+                elif (not a.is_seq) and a.group is None:
+                    next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depthes, a, symbol, next_token_id, depth + 1)
+                elif not a.is_seq:
+                    next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1) 
+                else: #list 
+                    next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1)
 
         return next_token_id
 
