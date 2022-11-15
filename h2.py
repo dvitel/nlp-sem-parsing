@@ -113,7 +113,7 @@ name_symbols.update(name_remover.rev_class_mapping.keys())
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
-tokenizer.add_special_tokens({'additional_special_tokens':[CLSN, INIT, NOARG, *list(nameRemover.rev_mapping.keys())]})
+tokenizer.add_special_tokens({'additional_special_tokens':[CLSN, INIT, NOARG, *list(name_remover.rev_mapping.keys())]})
 def preprocess(e):
     alt_bodies = []
     for s, t in zip(e["source"], e["target"]):
