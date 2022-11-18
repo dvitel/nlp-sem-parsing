@@ -21,9 +21,12 @@ def process(line):
 
 def unprocess(line):
     no_elist = line.replace(ELIST, "[]")
-    res_mod = eval(no_elist)
-    res = astunparse.unparse(res_mod).strip().replace("\n\n", "\n").replace("    ", "\t")
-    return res
+    # res_mod = eval(no_elist)
+    # res = astunparse.unparse(res_mod).strip().replace("\n\n", "\n").replace("    ", "\t")
+    return no_elist #legitimate python which builds code
+
+# x = "Module([ClassDef('AssassinassinBlade', [Name('WeaponCard', Load())], [], [FunctionDef('__init__', arguments([], [arg('self', None, None)], None, [], [], None, []), [Expr(Call(Attribute(Call(Name('super', Load()), [], []), '__init__', Load()), [Constant('Assassins Blade', None), Constant(5, None), Attribute(Name('CHARACTER_CLASS', Load()), 'ROGUE', Load()), Attribute(Name('CARD_RARITY', Load()), 'COMMON', Load())], []))], [], None, None), FunctionDef('create_weapon', arguments([], [arg('self', None, None), arg('player', None, None)], None, [], [], None, []), [Return(Call(Name('Weapon', Load()), [Constant(3, None), Constant(4, None)], [[]))], [], None, None)], [])], [])"
+# unprocess(x)
 # s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
 # s1 = s.replace("§", "\n").strip().replace("\n\n", "\n").replace("    ", "\t").replace("\\ ", "")
 # z = unprocess(process(s1))
