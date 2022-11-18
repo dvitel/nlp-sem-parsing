@@ -422,7 +422,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depths = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), -100)
-        mistakes = torch.zero_like(useful_labels)
+        mistakes = torch.zeros_like(useful_labels)
         grammar_mask = torch.ones_like(gpt2_result.logits)
         for sample_id in range(gpt2_result.logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
