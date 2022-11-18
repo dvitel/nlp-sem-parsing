@@ -145,7 +145,7 @@ trainer = Trainer(
 
 trainer.train()
 
-trainer.save_model(result_path)
-
-output = trainer.predict(test_set)
+output = trainer.predict(p_test_set)
 print(output.metrics) #test set metrics
+
+trainer.save_model(result_path)

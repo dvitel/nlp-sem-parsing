@@ -104,6 +104,8 @@ seed = 17
 np.random.seed(seed)
 torch.manual_seed(seed)
 
+def normalize(line:str):
+    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
 
 def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
@@ -112,19 +114,30 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": process_to_ast(t.replace("§", "\n").replace("    ", "\t").replace("\\ ", ""))} 
+    return [{"source": s, "target": process_to_ast(normalize(t))} 
                 for (s, t) in zip(train_source_lines, train_target_lines)]
 
-def two_pass_preprocess(file_name):
-    ds_list = read_samples(file_name)
+train_set0 = read_samples(train_file_name)
+dev_set0 = read_samples(dev_file_name)
+test_set0 = read_samples(test_file_name)
+
+def two_pass_preprocess(ds_list):
     for x in ds_list:
         msg = grammar_collector.build_message(x["target"], [])
         x["target"] = "".join(msg)
     return ds_list
 
-train_set = Dataset.from_list(two_pass_preprocess(train_file_name))
-dev_set = Dataset.from_list(two_pass_preprocess(dev_file_name))
-test_set = Dataset.from_list(two_pass_preprocess(test_file_name))
+import re
+symbol_pattern = r"\[(CLS\d+|v\d+)\]"
+def unprocess(message: 'list[str]'):
+    m = [re.sub(symbol_pattern, r"\1", x) for x in message]
+    code_module = grammar_collector.unparse(m, constructor = grammar_collector.build_module)
+    code = astunparse.unparse(code_module).strip().replace("\n\n", "\n").replace("    ", "\t")   
+    return code #we preserve name of symbols but remove []
+
+train_set = Dataset.from_list(two_pass_preprocess(train_set0))
+dev_set = Dataset.from_list(two_pass_preprocess(dev_set0))
+test_set = Dataset.from_list(two_pass_preprocess(test_set0))
 
 #First we experiment without any code preprocessing 
 
@@ -139,6 +152,7 @@ def preprocess(e):
     # print(alt_bodies)
     data = tokenizer(alt_bodies, padding = "max_length", truncation = True, max_length = max_length)  
     return data
+    
 
 p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
 p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
@@ -166,8 +180,8 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = tokenizer.decode(pred_view)
-      l_text = tokenizer.decode(labels_view)    
+      p_text = unprocess([tokenizer.decode(x) for x in pred_view])
+      l_text = unprocess([tokenizer.decode(x) for x in labels_view])
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -532,5 +546,8 @@ trainer = Trainer(
 )
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
+
+output = trainer.predict(p_test_set)
+print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)

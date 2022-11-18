@@ -6,15 +6,27 @@ import evaluate
 import numpy as np
 import os
 import ast
+from ast import *
+import astunparse
 import torch 
 
 ELIST = "[ELIST]"
+
+def normalize(line:str):
+    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
+
 def process(line):
     tree = ast.parse(line)
     return ast.dump(tree, annotate_fields=False).replace("[]", ELIST)
 
+def unprocess(line):
+    no_elist = line.replace(ELIST, "[]")
+    res_mod = eval(no_elist)
+    res = astunparse.unparse(res_mod).strip().replace("\n\n", "\n").replace("    ", "\t")
+    return res
 # s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
-# s1 = s.replace("§", "\n")
+# s1 = s.replace("§", "\n").strip().replace("\n\n", "\n").replace("    ", "\t").replace("\\ ", "")
+# z = unprocess(process(s1))
 # t = ast.parse(s1)
 # t.body[0]
 # re.compile("(?<=\W)\w+?=\[\]")
@@ -51,7 +63,7 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": process(t.replace("§", "\n").replace("    ", "\t").replace("\\ ", ""))} 
+    return [{"source": s, "target": process(normalize(t))} 
                 for (s, t) in zip(train_source_lines, train_target_lines)]
 
 train_set = Dataset.from_list(read_samples(train_file_name))
@@ -98,8 +110,8 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = tokenizer.decode(pred_view)
-      l_text = tokenizer.decode(labels_view)    
+      p_text = unprocess(tokenizer.decode(pred_view))
+      l_text = unprocess(tokenizer.decode(labels_view))
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -112,7 +124,6 @@ def compute_metrics(eval_pred):
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
-
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
@@ -158,5 +169,8 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+output = trainer.predict(p_test_set)
+print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)

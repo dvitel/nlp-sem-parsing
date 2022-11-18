@@ -60,8 +60,14 @@ def process(line):
     name_remover.visit(tree)
     name_symbols.update(name_remover.rev_mapping.keys())
     name_symbols.update(name_remover.rev_class_mapping.keys())
-    res = astunparse.unparse(tree)
-    return res.strip().replace("    ", "\t").replace("\n\n", "\n") #.replace(".__init__", INIT).replace("()", NOARG)
+    res = astunparse.unparse(tree).strip().replace("\n\n", "\n").replace("    ", "\t")
+    return res
+
+import re
+symbol_pattern = r"\[(CLS\d+|v\d+)\]"
+def unprocess(line: str):
+    res = re.sub(symbol_pattern, r"\1", line)
+    return res #we preserve name of symbols but remove []
 
 # s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
 # s1 = s.replace("§", "\n")
@@ -99,6 +105,8 @@ seed = 17
 np.random.seed(seed)
 torch.manual_seed(seed)
 
+def normalize(line:str):
+    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
 
 def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
@@ -107,7 +115,7 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": process(t.replace("§", "\n").replace("    ", "\t").replace("\\ ", ""))} 
+    return [{"source": s, "target": process(normalize(t))} 
                 for (s, t) in zip(train_source_lines, train_target_lines)]
 
 train_set = Dataset.from_list(read_samples(train_file_name))
@@ -154,8 +162,8 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = tokenizer.decode(pred_view)
-      l_text = tokenizer.decode(labels_view)    
+      p_text = unprocess(tokenizer.decode(pred_view))
+      l_text = unprocess(tokenizer.decode(labels_view))
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -214,5 +222,8 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+output = trainer.predict(p_test_set)
+print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)

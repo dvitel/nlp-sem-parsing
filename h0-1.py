@@ -27,6 +27,8 @@ seed = 17
 np.random.seed(seed)
 torch.manual_seed(seed)
 
+def normalize(line:str):
+    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
 
 def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
@@ -35,7 +37,10 @@ def read_samples(file_name):
     with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
         train_target_lines = f.read().splitlines()    
 
-    return [{"source": s, "target": t.replace("§", "\n").replace("    ", "\t")} for (s, t) in zip(train_source_lines, train_target_lines)]
+    return [{"source": s, "target": normalize(t)} for (s, t) in zip(train_source_lines, train_target_lines)]
+
+def unprocess(line):
+    return line
 
 train_set = Dataset.from_list(read_samples(train_file_name))
 dev_set = Dataset.from_list(read_samples(dev_file_name))
@@ -80,8 +85,8 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = tokenizer.decode(pred_view)
-      l_text = tokenizer.decode(labels_view)    
+      p_text = unprocess(tokenizer.decode(pred_view))
+      l_text = unprocess(tokenizer.decode(labels_view))
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -139,5 +144,8 @@ trainer = Trainer(
 )
 
 trainer.train()
+
+output = trainer.predict(p_test_set)
+print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)
