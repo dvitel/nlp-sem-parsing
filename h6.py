@@ -1,4 +1,4 @@
-""" h4 == h0 with light name removing and grammar layer on top. AST like structure """
+""" h6 == h4 but ignore all loss after first error """
 import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -89,8 +89,8 @@ test_file_name = "test_hs"
 dev_file_name = "dev_hs"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
 # out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
-out_dir = "out/h4"
-result_path = "result/h4"
+out_dir = "out/h6"
+result_path = "result/h6"
 checkpoint = "distilgpt2"
 max_length = 912
 # max_length = 32 #for debugging
@@ -198,11 +198,12 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.softmax = torch.nn.Softmax(dim=-1) #cannot learn if put last
         # self.max_possible_const_size = 10
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
-        self.depth_penalty_scaler = 10. #depth penalty scaled from 1 (deepest error) to depth_penalty_scaler (shallow error)
+        self.depth_scaler = 0.9 #depth penalty scaled from 1 (deepest error) to depth_scaler (shallow error)
+        self.depth_max_penalty = 10
         self.enable_logging = False
         #logits batch_size x sentence_length x size of vocab (logits)        
 
-    def _decode_constant_arg(self, grammar_mask, sample_tensor, depthes,  attr: SymbolAttr, parent: Symbol, token_id, depth):
+    def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made):
         # now we need to detect a chunk of labels that NN dedicated to this constant. 
         # we do this by taking argmax of NEND logits for next k tokens, k is hyper parameter, weighted by distance from start 
         #NOTE: next 1 means that at least 1 token should be read
@@ -216,8 +217,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[:] = 0
             logits_filter[label_ids] = 1
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            depthes[token_id] = depth
+            depths[token_id] = depth
             next_token_id = token_id + 1
+            if mistake_made:
+                labels[token_id] = -100
 
             #NEXT code is for debugging
             if self.enable_logging:
@@ -235,7 +238,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids = [ symbol_id_map[label] for label in grammar_collector.symbols.keys() ]
             label_ids.remove(nend_id)
             logits_filter[label_ids] = 0
-            depthes[next_token_id] = depth
+            depths[next_token_id] = depth
+
+            if mistake_made:
+                labels[next_token_id] = -100            
 
             symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
@@ -253,7 +259,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         return next_token_id
 
-    def _decode_list_arg(self, grammar_mask, sample_tensor, depthes, attr: SymbolAttr, token_id, depth):
+    def _decode_list_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, token_id, depth, mistake_made):
         if token_id >= sample_tensor.size(0):
             return sample_tensor.size(0)        
         assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
@@ -264,14 +270,17 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits_filter[:] = 0
         logits_filter[lst_id] = 1
         # sample_tensor[token_id, :] *= logits_filter
-        depthes[token_id] = depth
+        depths[token_id] = depth
+
+        if mistake_made: #ignore new errors because mistake was alreeady made at root node
+            labels[token_id] = -100
 
         if self.enable_logging:
             padding = "\t" * depth
             print(f"{padding}[{token_id}] --> [LST]")
 
         next_token_id = token_id + 1
-        # one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
+        one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
         #NOTE: we do not know how long list should be
         # at one moment we can check current logits for next_token_id and if it is probable to have NEND, we can terminate loop
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
@@ -285,7 +294,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids = [ symbol_id_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
             logits_filter[label_ids] = 1
-            depthes[next_token_id] = depth
+            depths[next_token_id] = depth
 
             
             # mask = torch.zeros_like(sample_tensor[next_token_id, :])
@@ -302,32 +311,36 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # logits_filter[:] = 0
                 # logits_filter[nend_id] = 1
                 # sample_tensor[next_token_id, :] *= logits_filter
-                # depthes[next_token_id] = depth
+                # depths[next_token_id] = depth
                 # next_token_id += 1 
+                if mistake_made:
+                    labels[next_token_id] = -100
+                # elif prediction != labels[next_token_id]: #wrong length of list
+                #     mistake_made = True 
+                
                 if self.enable_logging:
                     padding = "\t" * depth
                     print(f"{padding}[{next_token_id}] --> [NEND]")                
-
                 next_token_id += 1 
-
                 break 
             
-            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, one_attr, next_token_id, depth)
+            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)            
             symbol = grammar_collector.symbols[symbol_name]
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
                     continue #tensor does not have logits for this attr
                 elif (not a.is_seq) and a.group is None:
-                    next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depthes, a, symbol, next_token_id, depth + 1)
+                    next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, next_token_id, depth + 1, mistake_made)
                 elif not a.is_seq:
-                    next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1) 
+                    next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made) 
                 else: #list 
-                    next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1)
+                    next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made)
 
         return next_token_id
 
-    def _decode_symbol_arg(self, grammar_mask, sample_tensor, depthes, attr: SymbolAttr, token_id, depth):
+    def _decode_symbol_arg(self, grammar_mask, sample_tensor, depths, 
+            labels, attr: SymbolAttr, token_id, depth, mistake_made):
         if token_id >= sample_tensor.size(0): 
             return sample_tensor.size(0) # we already set all logits ilter
         assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
@@ -341,9 +354,14 @@ class PythonGrammarGPT2(torch.nn.Module):
         label_ids = [ symbol_id_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
         symbol_tensor = sample_tensor[token_id] * logits_filter + logits_filter
-        depthes[token_id] = depth
+        depths[token_id] = depth
         # print(sample_tensor[token_id, :])
         prediction = torch.argmax(symbol_tensor).item()
+        if mistake_made: #if mistake made before in ast - do not try correct errors after
+            labels[token_id] = -100 
+        elif prediction != labels[token_id]: #we made first mistake at ast node 
+            mistake_made = True
+            
         symbol_name = id_symbol_map[prediction]
 
         if self.enable_logging:
@@ -356,11 +374,11 @@ class PythonGrammarGPT2(torch.nn.Module):
             if not a.has_values: #note that we ignore this assuming that input follows the trained schema
                 continue #tensor does not have logits for this attr
             elif (not a.is_seq) and a.group is None:
-                next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depthes, a, symbol, next_token_id, depth + 1)
+                next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, next_token_id, depth + 1, mistake_made)
             elif not a.is_seq:
-                next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1) 
+                next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made) 
             else: #list 
-                next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depthes, a, next_token_id, depth + 1)
+                next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made)
         return next_token_id
 
     def forward(
@@ -376,14 +394,15 @@ class PythonGrammarGPT2(torch.nn.Module):
         #NOTE: next line requires much memory: batch_size * sentence_size * vocab_size
         # logits_filter = torch.zeros_like(gpt2_result.logits, device = "cpu") # we prepare tensor on cpu and then send it to gpu
 
-        #During traversal we collect here depthes of each label according to parsed tree
+        #During traversal we collect here depths of each label according to parsed tree
         #we use them for loss penalty later
 
         # print("Enforcing grammar...")
 
         scores = torch.nn.functional.softmax(gpt2_result.logits, dim=-1)
 
-        depthes = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
+        depths = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
+        useful_labels = torch.clone(labels) if labels is not None else torch.full((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), -100)
         grammar_mask = torch.ones_like(gpt2_result.logits)
         for sample_id in range(gpt2_result.logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
@@ -391,13 +410,14 @@ class PythonGrammarGPT2(torch.nn.Module):
             # self.enable_logging = sample_id == 0                
             token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
             # print("First token is ", token_id)
-            self._decode_symbol_arg(grammar_mask[sample_id], scores[sample_id], depthes[sample_id], attrs, token_id, 1) #updates logits corresponding to grammar
+            self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
+                                        useful_labels[sample_id, 1:], attrs, token_id, 1, False) #updates logits corresponding to grammar
             # self.enable_logging = False
             # print()
 
         grammar_logits = gpt2_result.logits * grammar_mask
 
-        # print("GLogits", grammar_logits)
+        print("Labels", useful_labels)
 
         # predictions = torch.argmax(grammar_logits, dim=-1).cpu()
         # label_ids = labels.cpu()
@@ -411,37 +431,38 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("Enforcing grammar done...")
 
-        # print("Depthes", depthes)
-        # we need to reecompute loss now, because we modified logits
-        # #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
-        # max_depthes = torch.max(depthes, dim = -1).values.reshape(depthes.size(0), 1)
-        # depthes_diffs = max_depthes - depthes
-        # max_depthes_diffs = torch.max(depthes_diffs, dim = -1).values
-        # max_depthes_diffs[max_depthes_diffs == 0] = 1
-        # depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
+        # print("Depthes", depths)
+        if labels is not None:
+            # we need to reecompute loss now, because we modified logits
+            # #NOTE: we weight loss - if misake was closer to the root node it has bigger rippler effect - so we panish root errors more
+            # max_depthes = torch.max(depths, dim = -1).values.reshape(depths.size(0), 1)
+            # depthes_diffs = max_depthes - depths
+            # max_depthes_diffs = torch.max(depthes_diffs, dim = -1).values
+            # max_depthes_diffs[max_depthes_diffs == 0] = 1
+            # depthes_diffs_w = (depthes_diffs / (max_depthes_diffs.reshape(depthes_diffs.size(0), 1))) * self.depth_penalty_scaler
 
-        # print("Depth weights", depthes_diffs_w)
-        # if "labels" in kwargs:
-            # Shift so that tokens < n predict n
-            # labels = kwargs["labels"]
-        shift_logits = grammar_logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        # shift_depth = depthes_diffs_w[..., :-1]
-        # predictions = torch.argmax(shift_logits, dim=-1)
-        # misses = (shift_labels != -100).float()
-        # misses *= (predictions != shift_labels).float()
+            # print("Depth weights", depthes_diffs_w)
+            # if "labels" in kwargs:
+                # Shift so that tokens < n predict n
+                # labels = kwargs["labels"]
+            shift_logits = grammar_logits[..., :-1, :].contiguous()
+            shift_labels = useful_labels[..., 1:].contiguous()
+            # shift_depth = depthes_diffs_w[..., :-1]
+            # predictions = torch.argmax(shift_logits, dim=-1)
+            # misses = (shift_labels != -100).float()
+            # misses *= (predictions != shift_labels).float()
 
-        # Flatten the tokens
-        loss_fct = torch.nn.CrossEntropyLoss() #reduce = False)
-        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        # loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
-        # w = torch.ones_like(loss_view)
+            # Flatten the tokens
+            loss_fct = torch.nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            # loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+            # w = torch.ones_like(loss_view)
 
-        # w += (shift_depth.to(w.device) * misses)
+            # w += (shift_depth.to(w.device) * misses)
 
-        # loss_view *= w
-        # loss_per_sample = loss_view.mean(axis=1)    
-        # weighted_loss = loss_per_sample.mean()        
+            # loss_view *= w
+            # loss_per_sample = loss_view.mean(axis=1)    
+            # weighted_loss = loss_per_sample.mean()        
         return CausalLMOutputWithCrossAttentions(
             loss = loss, #weighted_loss,
             logits = grammar_logits,
