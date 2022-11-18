@@ -326,6 +326,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             
             # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)            
             symbol = grammar_collector.symbols[symbol_name]
+            if mistake_made: #if mistake made before in ast - do not try correct errors after
+                labels[next_token_id] = -100 
+            elif prediction != labels[next_token_id]: #we made first mistake at ast node 
+                mistake_made = True            
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
