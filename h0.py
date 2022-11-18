@@ -1,17 +1,18 @@
 """ h0 - baseline - no python code preprocessing """
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 import evaluate
 import numpy as np
 import os
 import torch 
 
 # geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
-train_file_name = "train_hs"
-test_file_name = "test_hs"
-dev_file_name = "dev_hs"
+# hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
+# train_file_name = "train_hs"
+# test_file_name = "test_hs"
+# dev_file_name = "dev_hs"
+ds_name = "dvitel/hearthstone"
 # out_dir = "/content/drive/MyDrive/NLP/sem/out"
 # out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
 out_dir = "out/h0"
@@ -30,23 +31,11 @@ torch.manual_seed(seed)
 def normalize(line:str):
     return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
 
-def read_samples(file_name):
-    with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
-        train_source_lines = f.read().splitlines()
-
-    with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
-        train_target_lines = f.read().splitlines()    
-
-    return [{"source": s, "target": normalize(t)} for (s, t) in zip(train_source_lines, train_target_lines)]
+def preprocess0(e):
+    return {"source":e["source"], "target":[normalize(x) for x in e["target"]]}
 
 def unprocess(line):
     return line
-
-train_set = Dataset.from_list(read_samples(train_file_name))
-dev_set = Dataset.from_list(read_samples(dev_file_name))
-test_set = Dataset.from_list(read_samples(test_file_name))
-
-#First we experiment without any code preprocessing 
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
@@ -60,12 +49,9 @@ def preprocess(e):
     data = tokenizer(alt_bodies, padding = "max_length", truncation = True, max_length = max_length)  
     return data
 
-p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-#print("Max length train", len(max(p_train_set['input_ids'], key=lambda x: len(x))))
-#print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
-#print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
+ds = load_dataset(ds_name)
+ds0 = ds.map(preprocess0, batched = True)
+ds1 = ds0.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
 model.to("cuda")
@@ -140,13 +126,13 @@ trainer = Trainer(
     args=args,
     compute_metrics = compute_metrics,
     data_collator=custom_data_collator,
-    train_dataset=p_train_set,
-    eval_dataset=p_dev_set,
+    train_dataset=ds1["train"],
+    eval_dataset=ds1["validation"],
 )
 
 trainer.train()
 
-output = trainer.predict(p_test_set)
+output = trainer.predict(ds1["test"])
 print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)
