@@ -496,7 +496,8 @@ args = TrainingArguments(
     fp16=True, 
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
-    seed = seed, label_names = ["labels"]
+    seed = seed, label_names = ["labels"],
+    hub_model_id = "h4"
 )
 
 model = PythonGrammarGPT2()
@@ -516,3 +517,4 @@ output = trainer.predict(p_test_set)
 print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)
+trainer.push_to_hub()
