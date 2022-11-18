@@ -421,7 +421,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         grammar_logits = gpt2_result.logits * grammar_mask
 
-        print("Labels", useful_labels)
+        # print("Labels", useful_labels)
 
         # predictions = torch.argmax(grammar_logits, dim=-1).cpu()
         # label_ids = labels.cpu()
