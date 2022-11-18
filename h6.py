@@ -336,7 +336,10 @@ class PythonGrammarGPT2(torch.nn.Module):
                 mistakes[next_token_id] = 0
             elif prediction != labels[next_token_id]: #we made first mistake at ast node 
                 mistake_made = True 
-                mistakes[next_token_id] = 1           
+                mistakes[next_token_id] = 1      
+            else: #match of ast symbol 
+                labels[next_token_id] = -100 
+                mistakes[next_token_id] = 0
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -374,6 +377,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         elif prediction != labels[token_id]: #we made first mistake at ast node 
             mistake_made = True
             mistakes[token_id] = 1
+        else: #we do not care now about match too
+            labels[token_id] = -100
+            mistakes[token_id] = 0 
             
         symbol_name = id_symbol_map[prediction]
 
@@ -461,23 +467,23 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # labels = kwargs["labels"]
             shift_logits = grammar_logits[..., :-1, :].contiguous()
             shift_labels = useful_labels[..., 1:].contiguous()
-            shift_mistakes = mistakes[..., :-1].contiguous()
+            # shift_mistakes = mistakes[..., :-1].contiguous()
             # shift_depth = depthes_diffs_w[..., :-1]
             # predictions = torch.argmax(shift_logits, dim=-1)
             # misses = (shift_labels != -100).float()
             # misses *= (predictions != shift_labels).float()
 
             # Flatten the tokens
-            loss_fct = torch.nn.CrossEntropyLoss(reduction = "none")
+            loss_fct = torch.nn.CrossEntropyLoss() #reduction = "none")
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
-            w = shift_mistakes * self.mistake_weight + 1
+            # loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+            # w = shift_mistakes * self.mistake_weight + 1
 
-            loss_view *= w
-            loss_per_sample = loss_view.mean(axis=1)    
-            weighted_loss = loss_per_sample.mean()        
+            # loss_view *= w
+            # loss_per_sample = loss_view.mean(axis=1)    
+            # weighted_loss = loss_per_sample.mean()        
         return CausalLMOutputWithCrossAttentions(
-            loss = weighted_loss,
+            loss = loss, #weighted_loss,
             logits = grammar_logits,
             past_key_values = gpt2_result.past_key_values,
             hidden_states = gpt2_result.hidden_states,
