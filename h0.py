@@ -7,14 +7,7 @@ import numpy as np
 import os
 import torch 
 
-# geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-# hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
-# train_file_name = "train_hs"
-# test_file_name = "test_hs"
-# dev_file_name = "dev_hs"
 ds_name = "dvitel/hearthstone"
-# out_dir = "/content/drive/MyDrive/NLP/sem/out"
-# out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
 out_dir = "out/h0"
 result_path = "result/h0"
 checkpoint = "distilgpt2"

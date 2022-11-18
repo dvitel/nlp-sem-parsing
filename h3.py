@@ -1,7 +1,7 @@
 """ h2 == h0 with light name removing """
 import sys
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 import evaluate
 import numpy as np
 import os
@@ -55,8 +55,8 @@ class NameRemover(ast.NodeVisitor):
 name_remover = NameRemover()
 name_symbols = set()
 def process(line):
-    tree = ast.parse(line)
     name_remover.reset()
+    tree = ast.parse(line)    
     name_remover.visit(tree)
     name_symbols.update(name_remover.rev_mapping.keys())
     name_symbols.update(name_remover.rev_class_mapping.keys())
@@ -69,29 +69,8 @@ def unprocess(line: str):
     res = re.sub(symbol_pattern, r"\1", line)
     return res #we preserve name of symbols but remove []
 
-# s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
-# s1 = s.replace("§", "\n")
-# s2 = 'class FlameOfAzzinoth(MinionCard):§    def __init__(self):§        super().__init__("Flame of Azzinoth", 1, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, False)§§    def create_minion(self, player):§        return Minion(2, 1)§'
-# s2 = s2.replace("§", "\n")
-# process(s1)
-# print()
-# process(s2)
-# name_symbols
-# t = ast.parse(s1)
-# t.body[0]
-# re.compile("(?<=\W)\w+?=\[\]")
-# re.sub("(,\s*?|(?<=\W))\w+?=\[\]", "", ast.dump(t.body[0], annotate_fields=True))
-# ast.unparse(t)
-# dir(ast)
-# help(ast.FunctionDef)
 
-# geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
-train_file_name = "train_hs"
-test_file_name = "test_hs"
-dev_file_name = "dev_hs"
-# out_dir = "/content/drive/MyDrive/NLP/sem/out"
-# out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
+ds_name = "dvitel/hearthstone"
 out_dir = "out/h3"
 result_path = "result/h3"
 checkpoint = "distilgpt2"
@@ -108,21 +87,11 @@ torch.manual_seed(seed)
 def normalize(line:str):
     return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
 
-def read_samples(file_name):
-    with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
-        train_source_lines = f.read().splitlines()
+def preprocess0(e):
+    return {"source":e["source"], "target":[process(normalize(x)) for x in e["target"]]}
 
-    with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
-        train_target_lines = f.read().splitlines()    
-
-    return [{"source": s, "target": process(normalize(t))} 
-                for (s, t) in zip(train_source_lines, train_target_lines)]
-
-train_set = Dataset.from_list(read_samples(train_file_name))
-dev_set = Dataset.from_list(read_samples(dev_file_name))
-test_set = Dataset.from_list(read_samples(test_file_name))
-
-#First we experiment without any code preprocessing 
+ds = load_dataset(ds_name)
+ds0 = ds.map(preprocess0, batched = True)
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
@@ -136,12 +105,7 @@ def preprocess(e):
     data = tokenizer(alt_bodies, padding = "max_length", truncation = True, max_length = max_length)  
     return data
 
-p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-#print("Max length train", len(max(p_train_set['input_ids'], key=lambda x: len(x))))
-#print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
-#print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
+ds1 = ds0.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
 model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
 model.resize_token_embeddings(len(tokenizer))
@@ -176,7 +140,6 @@ def compute_metrics(eval_pred):
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
-
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
@@ -218,13 +181,13 @@ trainer = Trainer(
     args=args,
     compute_metrics = compute_metrics,
     data_collator=custom_data_collator,
-    train_dataset=p_train_set,
-    eval_dataset=p_dev_set,
+    train_dataset=ds1["train"],
+    eval_dataset=ds1["validation"],
 )
 
 trainer.train()
 
-output = trainer.predict(p_test_set)
+output = trainer.predict(ds1["test"])
 print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)

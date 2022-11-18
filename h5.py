@@ -3,7 +3,7 @@ import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 import evaluate
 import numpy as np
 import os
@@ -63,69 +63,6 @@ def process_to_ast(line):
     name_symbols.update(name_remover.rev_mapping.keys())
     name_symbols.update(name_remover.rev_class_mapping.keys())
     return tree
-    # res = astunparse.unparse(tree)
-    # return res.strip().replace("    ", "\t").replace("\n\n", "\n") #.replace(".__init__", INIT).replace("()", NOARG)
-
-# s = 'class AcidicSwampOoze(MinionCard):§    def __init__(self):§        super().__init__("Acidic Swamp Ooze", 2, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, battlecry=Battlecry(Destroy(), WeaponSelector(EnemyPlayer())))§§    def create_minion(self, player):§        return Minion(3, 2)§'
-# s1 = s.replace("§", "\n")
-# s2 = 'class FlameOfAzzinoth(MinionCard):§    def __init__(self):§        super().__init__("Flame of Azzinoth", 1, CHARACTER_CLASS.ALL, CARD_RARITY.COMMON, False)§§    def create_minion(self, player):§        return Minion(2, 1)§'
-# s2 = s2.replace("§", "\n")
-# process(s1)
-# print()
-# process(s2)
-# name_symbols
-# t = ast.parse(s1)
-# t.body[0]
-# re.compile("(?<=\W)\w+?=\[\]")
-# re.sub("(,\s*?|(?<=\W))\w+?=\[\]", "", ast.dump(t.body[0], annotate_fields=True))
-# ast.unparse(t)
-# dir(ast)
-# help(ast.FunctionDef)
-
-# geo_ds_file = "/content/drive/MyDrive/NLP/sem/geoqueries880"
-hs_folder = sys.argv[2] if len(sys.argv) > 2 else "hearthstone"
-train_file_name = "train_hs"
-test_file_name = "test_hs"
-dev_file_name = "dev_hs"
-# out_dir = "/content/drive/MyDrive/NLP/sem/out"
-# out_dir = sys.argv[1] if len(sys.argv) > 1 else "out"
-out_dir = "out/h5"
-result_path = "result/h5"
-checkpoint = "distilgpt2"
-max_length = 912
-# max_length = 32 #for debugging
-batch_size = 4
-num_epochs = 200
-eval_steps = 1600
-# eval_steps = 8 #for debugging
-learning_rate = 2e-5
-seed = 17
-
-np.random.seed(seed)
-torch.manual_seed(seed)
-
-def normalize(line:str):
-    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
-
-def read_samples(file_name):
-    with open(os.path.join(hs_folder, file_name + ".in"), 'r') as f:
-        train_source_lines = f.read().splitlines()
-
-    with open(os.path.join(hs_folder, file_name + ".out"), 'r') as f:
-        train_target_lines = f.read().splitlines()    
-
-    return [{"source": s, "target": process_to_ast(normalize(t))} 
-                for (s, t) in zip(train_source_lines, train_target_lines)]
-
-train_set0 = read_samples(train_file_name)
-dev_set0 = read_samples(dev_file_name)
-test_set0 = read_samples(test_file_name)
-
-def two_pass_preprocess(ds_list):
-    for x in ds_list:
-        msg = grammar_collector.build_message(x["target"], [])
-        x["target"] = "".join(msg)
-    return ds_list
 
 import re
 symbol_pattern = r"\[(CLS\d+|v\d+)\]"
@@ -135,11 +72,35 @@ def unprocess(message: 'list[str]'):
     code = astunparse.unparse(code_module).strip().replace("\n\n", "\n").replace("    ", "\t")   
     return code #we preserve name of symbols but remove []
 
-train_set = Dataset.from_list(two_pass_preprocess(train_set0))
-dev_set = Dataset.from_list(two_pass_preprocess(dev_set0))
-test_set = Dataset.from_list(two_pass_preprocess(test_set0))
+ds_name = "dvitel/hearthstone"
+out_dir = "out/h5"
+result_path = "result/h5"
+checkpoint = "distilgpt2"
+max_length = 912
+batch_size = 4
+num_epochs = 200
+eval_steps = 1600
+learning_rate = 2e-5
+seed = 17
 
-#First we experiment without any code preprocessing 
+np.random.seed(seed)
+torch.manual_seed(seed)
+
+def normalize(line:str):
+    return line.strip().replace("§", "\n").replace("    ", "\t").replace("\\ ", "").replace("\n\n", "\n")
+
+def preprocess0(e):
+    return {"source":e["source"], "target":[process_to_ast(normalize(x)) for x in e["target"]]}
+
+ds = load_dataset(ds_name)
+ds0 = ds.map(preprocess0, batched = True)
+
+def preprocess1(e):
+    return {"source":e["source"], 
+            "target":["".join(grammar_collector.build_message(x, [])) 
+                        for x in e["target"]]}
+
+ds01 = ds.map(preprocess1, batched = True)
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
@@ -153,16 +114,8 @@ def preprocess(e):
     data = tokenizer(alt_bodies, padding = "max_length", truncation = True, max_length = max_length)  
     return data
 
-p_train_set = train_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_test_set = test_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-p_dev_set = dev_set.map(preprocess, batched = True, remove_columns = ["source", "target"])
-#print("Max length train", len(max(p_train_set['input_ids'], key=lambda x: len(x))))
-#print("Max length dev", len(max(p_dev_set['input_ids'], key=lambda x: len(x))))
-#print("Max length test", len(max(p_test_set['input_ids'], key=lambda x: len(x))))
+ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
-# model = AutoModelForCausalLM.from_pretrained(checkpoint, n_ctx = max_length, max_length = max_length)
-# model.resize_token_embeddings(len(tokenizer))
-# model.to("cuda")
 
 bleu = evaluate.load("bleu")
 codebleu = evaluate.load("dvitel/codebleu")
@@ -509,13 +462,13 @@ trainer = Trainer(
     args=args,
     compute_metrics = compute_metrics,
     data_collator=custom_data_collator,
-    train_dataset=p_train_set,
-    eval_dataset=p_dev_set,
+    train_dataset=ds1["train"],
+    eval_dataset=ds1["validation"],
 )
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
-output = trainer.predict(p_test_set)
+output = trainer.predict(ds1["test"])
 print(output.metrics) #test set metrics
 
 trainer.save_model(result_path)
