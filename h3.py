@@ -12,6 +12,8 @@ CLSN = "[CLSN]"
 # INIT = "[INIT]"
 # NOARG = "[NOARG]"
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 # dir(ast.parse("Minion(1,2)").body[0])
 
 class NameRemover(ast.NodeVisitor):

@@ -10,6 +10,8 @@ from ast import *
 import astunparse
 import torch 
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 ELIST = "[ELIST]"
 
 def normalize(line:str):

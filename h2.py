@@ -12,6 +12,8 @@ CLSN = "[CLSN]"
 INIT = "[INIT]"
 NOARG = "[NOARG]"
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 class NameRemover(ast.NodeVisitor):
     ''' TODO; reverse mode or renaming back '''
     def __init__(self) -> None:

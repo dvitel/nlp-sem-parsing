@@ -7,6 +7,8 @@ import numpy as np
 import os
 import torch 
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 ds_name = "dvitel/hearthstone"
 out_dir = "out/h0-1"
 result_path = "result/h0-1"

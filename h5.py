@@ -12,6 +12,8 @@ import torch
 import astunparse
 from grammar import LST, NEND, GrammarCollector, Symbol, SymbolAttr, start_symbol
 
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 # torch.autograd.set_detect_anomaly(True)
 
 class NameRemover(ast.NodeVisitor):
