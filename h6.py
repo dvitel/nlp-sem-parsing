@@ -484,7 +484,7 @@ args = TrainingArguments(
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
     seed = seed, label_names = ["labels"],
-    hub_model_id = "h6"
+    hub_model_id = "h6", push_to_hub = True
 )
 
 model = PythonGrammarGPT2()
@@ -503,5 +503,5 @@ trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "atten
 output = trainer.predict(ds1["test"])
 print(output.metrics) #test set metrics
 
-trainer.save_model(result_path)
+# trainer.save_model(result_path)
 trainer.push_to_hub()
