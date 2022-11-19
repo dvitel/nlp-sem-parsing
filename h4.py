@@ -101,7 +101,7 @@ def preprocess1(e):
     return {"source":e["source"], 
             "target":"".join(grammar_collector.build_message(e["target"], [])) }
 
-ds01_dict = {k:[preprocess1(el) for el in one_ds] for k, one_ds in ds_dict.items()}
+ds01_dict = {k:Dataset.from_list([preprocess1(el) for el in one_ds]) for k, one_ds in ds_dict.items()}
 ds01 = DatasetDict(ds01_dict)
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
