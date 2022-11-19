@@ -86,7 +86,15 @@ def compute_metrics(eval_pred):
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
-data_collator = DataCollatorForLanguageModeling(decoder_tokenizer, mlm = False)
+# data_collator = DataCollatorForLanguageModeling(decoder_tokenizer, mlm = False)
+def custom_data_collator(examples):
+    # Handle dict or lists with proper padding and conversion to tensor.
+    batch = {k:torch.tensor(v, device=decoder_model.device) for k,v in examples.items()}
+
+    labels = batch["input_ids"].clone()
+    labels[labels == decoder_tokenizer.pad_token_id] = -100
+    batch["labels"] = labels
+    return batch    
 
 class BertGPT2(torch.nn.Module):
     def __init__(self):
@@ -134,7 +142,7 @@ args = TrainingArguments(
 trainer = Trainer(
     model=model,
     args=args,
-    data_collator = data_collator,
+    data_collator = custom_data_collator,
     compute_metrics = compute_metrics,
     train_dataset=ds1["train"],
     eval_dataset=ds1["validation"],
