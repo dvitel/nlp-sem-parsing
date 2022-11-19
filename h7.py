@@ -90,19 +90,6 @@ def compute_metrics(eval_pred):
 def custom_data_collator(examples):
     # Handle dict or lists with proper padding and conversion to tensor.
 
-    # def tenzorize():
-    #     if isinstance(examples[0], (list, tuple, np.ndarray)):
-    #         examples = [torch.tensor(e, dtype=torch.long) for e in examples]
-
-    #     length_of_first = examples[0].size(0)
-
-    #     # Check if padding is necessary.
-
-    #     are_tensors_same_length = all(x.size(0) == length_of_first for x in examples)
-    #     if are_tensors_same_length and (pad_to_multiple_of is None or length_of_first % pad_to_multiple_of == 0):
-    #         return torch.stack(examples, dim=0)
-
-    print(list(examples[0].keys()))
     decoder_input_ids = [x["input_ids"] for x in examples]
     decoder_attention_mask = [x["attention_mask"] for x in examples]
     encoder_input_ids = [x["encoder_input_ids"] for x in examples]
