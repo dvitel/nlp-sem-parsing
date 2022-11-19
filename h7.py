@@ -89,7 +89,27 @@ def compute_metrics(eval_pred):
 # data_collator = DataCollatorForLanguageModeling(decoder_tokenizer, mlm = False)
 def custom_data_collator(examples):
     # Handle dict or lists with proper padding and conversion to tensor.
-    batch = {k:torch.tensor(v, device=decoder_model.device) for k,v in examples.items()}
+
+    # def tenzorize():
+    #     if isinstance(examples[0], (list, tuple, np.ndarray)):
+    #         examples = [torch.tensor(e, dtype=torch.long) for e in examples]
+
+    #     length_of_first = examples[0].size(0)
+
+    #     # Check if padding is necessary.
+
+    #     are_tensors_same_length = all(x.size(0) == length_of_first for x in examples)
+    #     if are_tensors_same_length and (pad_to_multiple_of is None or length_of_first % pad_to_multiple_of == 0):
+    #         return torch.stack(examples, dim=0)
+
+    decoder_input_ids = [x["input_ids"] for x in examples]
+    decoder_attention_mask = [x["attention_mask"] for x in examples]
+    encoder_input_ids = [x["encoder_input_ids"] for x in examples]
+    encoder_attention_mask = [x["encoder_attention_mask"] for x in examples]
+    decoder_batch = decoder_tokenizer.pad({"input_ids": decoder_input_ids, "attention_mask": decoder_attention_mask}, return_tensors="pt", pad_to_multiple_of=None)
+    encoder_batch = encoder_tokenizer.pad({"input_ids": encoder_input_ids, "attention_mask": encoder_attention_mask}, return_tensors="pt", pad_to_multiple_of=None)
+    #{k:torch.tensor(v, device=decoder_model.device) for k,v in examples.items()}
+    batch = {**decoder_batch, **encoder_batch}
 
     labels = batch["input_ids"].clone()
     labels[labels == decoder_tokenizer.pad_token_id] = -100
