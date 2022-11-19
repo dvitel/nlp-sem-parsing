@@ -134,8 +134,15 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = unprocess([tokenizer.decode(x) for x in pred_view])
-      l_text = unprocess([tokenizer.decode(x) for x in labels_view])
+      l_text_m = [tokenizer.decode(x) for x in labels_view]
+      p_text_m = [tokenizer.decode(x) for x in pred_view]      
+      try:
+        l_text = unprocess(l_text_m)
+        p_text = unprocess(p_text_m)        
+      except AssertionError as e: 
+        print("ERR L", "".join(l_text_m))
+        print("ERR P", "".join(p_text_m))
+        raise e
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
