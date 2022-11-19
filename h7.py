@@ -42,7 +42,7 @@ encoder_tokenizer = AutoTokenizer.from_pretrained(encoder)
 decoder_tokenizer = AutoTokenizer.from_pretrained(decoder)
 decoder_tokenizer.pad_token = decoder_tokenizer.eos_token
 def preprocess(e):
-    sources = e["sources"]
+    sources = e["source"]
     encoder_input = encoder_tokenizer(sources, padding = "max_length", truncation = True, max_length = decoder_max_length)  
     targets = [decoder_tokenizer.bos_token + t for t in e["target"]]
     decoder_input = decoder_tokenizer(targets, padding = "max_length", truncation = True, max_length = decoder_max_length)  
