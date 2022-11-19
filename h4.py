@@ -136,13 +136,13 @@ def compute_metrics(eval_pred):
       pred_view = preds[label_map]
       l_text_m = [tokenizer.decode(x) for x in labels_view]
       p_text_m = [tokenizer.decode(x) for x in pred_view]      
-      try:
-        l_text = unprocess(l_text_m)
+      l_text = unprocess(l_text_m) #probably we can cache this 
+      try:        
         p_text = unprocess(p_text_m)        
-      except AssertionError as e: 
-        print("ERR L", "".join(l_text_m))
-        print("ERR P", "".join(p_text_m))
-        raise e
+      except Exception as e: 
+        print(f"Prediction has runtime error: {e}. Comparing plain forms")
+        l_text = "".join(l_text_m)
+        p_text = "".join(p_text_m)
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -475,7 +475,7 @@ trainer = Trainer(
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
-output = trainer.predict(ds1["test"])
+output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 print(output.metrics) #test set metrics
 
 # trainer.save_model(result_path)
