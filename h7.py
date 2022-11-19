@@ -102,12 +102,13 @@ def custom_data_collator(examples):
     #     if are_tensors_same_length and (pad_to_multiple_of is None or length_of_first % pad_to_multiple_of == 0):
     #         return torch.stack(examples, dim=0)
 
+    print(list(examples[0].keys()))
     decoder_input_ids = [x["input_ids"] for x in examples]
     decoder_attention_mask = [x["attention_mask"] for x in examples]
     encoder_input_ids = [x["encoder_input_ids"] for x in examples]
     encoder_attention_mask = [x["encoder_attention_mask"] for x in examples]
     decoder_batch = decoder_tokenizer.pad({"input_ids": decoder_input_ids, "attention_mask": decoder_attention_mask}, return_tensors="pt", pad_to_multiple_of=None)
-    encoder_batch = encoder_tokenizer.pad({"input_ids": encoder_input_ids, "attention_mask": encoder_attention_mask}, return_tensors="pt", pad_to_multiple_of=None)
+    encoder_batch = encoder_tokenizer.pad({"encoder_input_ids": encoder_input_ids, "encoder_attention_mask": encoder_attention_mask}, return_tensors="pt", pad_to_multiple_of=None)
     #{k:torch.tensor(v, device=decoder_model.device) for k,v in examples.items()}
     batch = {**decoder_batch, **encoder_batch}
 
