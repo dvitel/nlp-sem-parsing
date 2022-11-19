@@ -49,7 +49,7 @@ def preprocess(e):
     return {"decoder_input_ids": decoder_input["input_ids"], "decoder_attention_mask": decoder_input["attention_mask"],
             "encoder_input_ids": encoder_input["input_ids"], "encoder_attention_mask": encoder_input["attention_mask"]}
 
-ds1 = ds0.map(preprocess, batched = True, remove_columns = ["source"])
+ds1 = ds0.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
 encoder_model = DistilBertModel.from_pretrained(encoder, max_length = encoder_max_length)
 encoder_model.to("cuda")
@@ -138,7 +138,7 @@ trainer = Trainer(
     eval_dataset=ds1["validation"],
 )
 
-trainer.train()
+trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
 output = trainer.predict(ds1["test"])
 print(output.metrics) #test set metrics
