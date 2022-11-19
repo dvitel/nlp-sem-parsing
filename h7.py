@@ -86,6 +86,8 @@ def compute_metrics(eval_pred):
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
+data_collator = DataCollatorForLanguageModeling(decoder_tokenizer, mlm = False)
+
 class BertGPT2(torch.nn.Module):
     def __init__(self):
         super(BertGPT2, self).__init__()
@@ -94,15 +96,14 @@ class BertGPT2(torch.nn.Module):
 
     def forward(
         self, 
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
         encoder_input_ids: Optional[torch.LongTensor] = None,
-        encoder_attention_mask: Optional[torch.FloatTensor] = None,        
-        decoder_input_ids: Optional[torch.LongTensor] = None,
-        decoder_attention_mask: Optional[torch.FloatTensor] = None
+        encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None
     ):
         bert_result = self.encoder(input_ids = encoder_input_ids, attention_mask = encoder_attention_mask, return_dict = True)
-        labels = torch.clone(decoder_input_ids)
-        labels[labels == decoder_tokenizer.pad_token_id] = -100
-        gpt2_result = self.decoder(input_ids = decoder_input_ids, attention_mask = decoder_attention_mask, labels = labels,
+        gpt2_result = self.decoder(input_ids = input_ids, attention_mask = attention_mask, labels = labels,
                                     encoder_hidden_states = bert_result.last_hidden_state, return_dict = True)
 
         return gpt2_result
@@ -127,12 +128,13 @@ args = TrainingArguments(
     fp16=True, 
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
-    seed = seed,
+    seed = seed, label_names = ["labels"]
 )
 
 trainer = Trainer(
     model=model,
     args=args,
+    data_collator = data_collator,
     compute_metrics = compute_metrics,
     train_dataset=ds1["train"],
     eval_dataset=ds1["validation"],
