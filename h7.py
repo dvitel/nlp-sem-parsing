@@ -15,7 +15,7 @@ out_dir = "out/h7"
 result_path = "result/h7"
 decoder = "distilgpt2"
 encoder = "distilbert-base-uncased"
-decoder_max_length = 768
+decoder_max_length = 912
 encoder_max_length = 128
 batch_size = 4
 num_epochs = 200
@@ -144,7 +144,8 @@ args = TrainingArguments(
     fp16=True, 
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
-    seed = seed, label_names = ["labels"]
+    seed = seed, label_names = ["labels"],
+    hub_model_id = "h7", push_to_hub = True
 )
 
 trainer = Trainer(
@@ -158,8 +159,8 @@ trainer = Trainer(
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
-output = trainer.predict(ds1["test"])
+output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 print(output.metrics) #test set metrics
 
-trainer.save_model(result_path)
-# trainer.push_to_hub()
+# trainer.save_model(result_path)
+trainer.push_to_hub()

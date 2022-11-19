@@ -134,8 +134,10 @@ def compute_metrics(eval_pred):
       label_map = labels >= 0
       labels_view = labels[label_map]
       pred_view = preds[label_map]
-      p_text = unprocess([tokenizer.decode(x) for x in pred_view])
-      l_text = unprocess([tokenizer.decode(x) for x in labels_view])
+      l_text = tokenizer.decode(labels_view)
+      p_text = tokenizer.decode(pred_view)
+    #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
+    #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -297,7 +299,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 next_token_id += 1 
                 break 
             
-            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)            
+            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)
             symbol = grammar_collector.symbols[symbol_name]
             if mistake_made: #if mistake made before in ast - do not try correct errors after
                 labels[next_token_id] = -100 
@@ -502,7 +504,7 @@ trainer = Trainer(
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 
-output = trainer.predict(ds1["test"])
+output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
 print(output.metrics) #test set metrics
 
 # trainer.save_model(result_path)
