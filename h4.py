@@ -143,6 +143,9 @@ def compute_metrics(eval_pred):
         print(f"Prediction has runtime error: {e}. Comparing plain forms")
         l_text = "".join(l_text_m)
         p_text = "".join(p_text_m)
+        print("ERR L", l_text)
+        print("ERR P", p_text) 
+        print("--------------")
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
