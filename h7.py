@@ -46,7 +46,7 @@ def preprocess(e):
     encoder_input = encoder_tokenizer(sources, padding = "max_length", truncation = True, max_length = encoder_max_length)  
     targets = [decoder_tokenizer.bos_token + t for t in e["target"]]
     decoder_input = decoder_tokenizer(targets, padding = "max_length", truncation = True, max_length = decoder_max_length)  
-    return {"decoder_input_ids": decoder_input["input_ids"], "decoder_attention_mask": decoder_input["attention_mask"],
+    return {"input_ids": decoder_input["input_ids"], "attention_mask": decoder_input["attention_mask"],
             "encoder_input_ids": encoder_input["input_ids"], "encoder_attention_mask": encoder_input["attention_mask"]}
 
 ds1 = ds0.map(preprocess, batched = True, remove_columns = ["source", "target"])
