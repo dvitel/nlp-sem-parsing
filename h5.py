@@ -3,7 +3,7 @@ import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
-from datasets import Dataset, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
 import evaluate
 import numpy as np
 import os
@@ -95,14 +95,14 @@ def preprocess0(e):
     return {"source":e["source"], "target":[process_to_ast(normalize(x)) for x in e["target"]]}
 
 ds = load_dataset(ds_name)
-ds0 = ds.map(preprocess0, batched = True)
+ds_dict = {k:[{**el, "target": process_to_ast(normalize(el["target"]))} for el in one_ds] for k, one_ds in ds.items()}
 
 def preprocess1(e):
     return {"source":e["source"], 
-            "target":["".join(grammar_collector.build_message(x, [])) 
-                        for x in e["target"]]}
+            "target":"".join(grammar_collector.build_message(e["target"], [])) }
 
-ds01 = ds.map(preprocess1, batched = True)
+ds01_dict = {k:Dataset.from_list([preprocess1(el) for el in one_ds]) for k, one_ds in ds_dict.items()}
+ds01 = DatasetDict(ds01_dict)
 
 tokenizer = AutoTokenizer.from_pretrained(checkpoint)
 tokenizer.pad_token = tokenizer.eos_token
