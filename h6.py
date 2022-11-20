@@ -171,7 +171,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.depth_scaler = 0.9 #depth penalty scaled from 1 (deepest error) to depth_scaler (shallow error)
         self.depth_max_penalty = 10
         self.enable_logging = False
-        self.mistake_weight = 100.
+        self.mistake_weight = 20.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
