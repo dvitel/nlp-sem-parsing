@@ -373,7 +373,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # self.enable_logging = False
             # print()
 
-        grammar_logits = scores * grammar_mask
+        grammar_logits = gpt2_result.logits * grammar_mask
 
         # print("GLogits", grammar_logits)
 
