@@ -168,10 +168,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.softmax = torch.nn.Softmax(dim=-1) #cannot learn if put last
         # self.max_possible_const_size = 10
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
-        self.depth_scaler = 0.9 #depth penalty scaled from 1 (deepest error) to depth_scaler (shallow error)
-        self.depth_max_penalty = 10
         self.enable_logging = False
-        self.mistake_weight = 20.
+        self.ast_weight = 10.
+        self.length_weight = 20.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
@@ -212,20 +211,24 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[label_ids] = 0
             depths[next_token_id] = depth
 
-            if mistake_made:
-                labels[next_token_id] = -100       
-                mistakes[next_token_id] = 0     
-
             symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
+
+            if mistake_made:
+                labels[next_token_id] = -100       
+                mistakes[next_token_id] = 0     
+            elif (prediction == nend_id or labels[next_token_id] == nend_id) and prediction != labels[next_token_id]: #we made first mistake at length
+                mistake_made = True 
+                mistakes[next_token_id] = self.length_weight    
+
             # if prediction not in id_symbol_map:
             #     print(f"Cannot find {prediction} {tokenizer.decode(prediction)} in id_symbol_map", file = sys.stderr)
             # symbol = id_symbol_map[prediction]            
             if prediction == nend_id:
                 if self.enable_logging:
                     padding = "\t" * depth
-                    print(f"{padding}[{next_token_id}] --> [NEND]")                
+                    print(f"{padding}[{next_token_id}] --> [NEND]")    
                 next_token_id += 1 
                 break             
             next_token_id += 1 
@@ -290,8 +293,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 if mistake_made:
                     labels[next_token_id] = -100
                     mistakes[next_token_id] = 0
-                # elif prediction != labels[next_token_id]: #wrong length of list
-                #     mistake_made = True 
+                elif prediction != labels[next_token_id]: #we made first mistake at length
+                    mistake_made = True 
+                    mistakes[next_token_id] = self.length_weight     
                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -306,7 +310,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 mistakes[next_token_id] = 0
             elif prediction != labels[next_token_id]: #we made first mistake at ast node 
                 mistake_made = True 
-                mistakes[next_token_id] = 1      
+                mistakes[next_token_id] = self.length_weight if labels[next_token_id] == nend_id else self.ast_weight
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -343,7 +347,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             mistakes[token_id] = 0
         elif prediction != labels[token_id]: #we made first mistake at ast node 
             mistake_made = True
-            mistakes[token_id] = 1
+            mistakes[token_id] = self.ast_weight
             
         symbol_name = id_symbol_map[prediction]
 
@@ -386,7 +390,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depths = torch.ones((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((gpt2_result.logits.size(0), gpt2_result.logits.size(1)), -100)
-        mistakes = torch.zeros_like(useful_labels)
+        mistakes = torch.ones_like(useful_labels)
         grammar_mask = torch.ones_like(gpt2_result.logits)
         for sample_id in range(gpt2_result.logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
@@ -441,9 +445,8 @@ class PythonGrammarGPT2(torch.nn.Module):
             loss_fct = torch.nn.CrossEntropyLoss(reduction = "none")
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
-            w = shift_mistakes * self.mistake_weight + 1
 
-            loss_view *= w
+            loss_view *= shift_mistakes
             loss_per_sample = loss_view.mean(axis=1)    
             weighted_loss = loss_per_sample.mean()        
         return CausalLMOutputWithCrossAttentions(
