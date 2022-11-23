@@ -183,8 +183,8 @@ def compute_metrics(eval_pred):
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
-nend_id = tokenizer(symbol_to_token_map[NEND]).input_ids[0]
-lst_id = tokenizer(symbol_to_token_map[LST]).input_ids[0]
+nend_id = symbol_to_tid_map[NEND]
+lst_id = symbol_to_tid_map[LST]
 
 torch.set_printoptions(edgeitems=100) #for debugging only
 
@@ -199,8 +199,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.max_possible_const_size = 10
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.enable_logging = False
-        self.ast_weight = 10.
-        self.length_weight = 2.
+        # self.ast_weight = 10.
+        # self.length_weight = 2.
+        self.err_weight = 10.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
@@ -217,15 +218,19 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[:] = 0
             logits_filter[label_ids] = 1
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            depths[token_id] = depth
-            next_token_id = token_id + 1
+            prediction = torch.argmax(symbol_tensor).item()
+            depths[token_id] = depth            
             if mistake_made:
                 labels[token_id] = -100
                 mistakes[token_id] = 0
+            elif prediction != labels[token_id]:
+                mistake_made = True 
+                mistakes[token_id] = self.err_weight
+
+            next_token_id = token_id + 1
 
             #NEXT code is for debugging
             if self.enable_logging:
-                prediction = torch.argmax(symbol_tensor).item()
                 symbol_name = tid_to_symbol_map[prediction]
                 padding = "\t" * depth
                 print(f"{padding}[{token_id}] --> {symbol_name}")                  
@@ -241,16 +246,16 @@ class PythonGrammarGPT2(torch.nn.Module):
             # logits_filter[label_ids] = 0
             depths[next_token_id] = depth
 
-            symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
+            symbol_tensor = sample_tensor[next_token_id] * logits_filter            
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
 
             if mistake_made:
                 labels[next_token_id] = -100       
                 mistakes[next_token_id] = 0     
-            elif (prediction == nend_id or labels[next_token_id] == nend_id) and prediction != labels[next_token_id]: #we made first mistake at length
+            elif prediction != labels[next_token_id]:
                 mistake_made = True 
-                mistakes[next_token_id] = self.length_weight    
+                mistakes[next_token_id] = self.err_weight    
 
             # if prediction not in tid_to_symbol_map:
             #     print(f"Cannot find {prediction} {tokenizer.decode(prediction)} in tid_to_symbol_map", file = sys.stderr)
@@ -278,9 +283,10 @@ class PythonGrammarGPT2(torch.nn.Module):
         # sample_tensor[token_id, :] *= logits_filter
         depths[token_id] = depth
 
-        if mistake_made: #ignore new errors because mistake was alreeady made at root node
-            labels[token_id] = -100
-            mistakes[token_id] = 0     
+        # if mistake_made: #ignore new errors because mistake was alreeady made at root node
+        # NOTE: here we cannot make a mistake on LST node - ignore it anyway
+        labels[token_id] = -100
+        mistakes[token_id] = 0     
 
         if self.enable_logging:
             padding = "\t" * depth
@@ -306,7 +312,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             
             # mask = torch.zeros_like(sample_tensor[next_token_id, :])
             # mask[label_ids] = 1
-            symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
+            symbol_tensor = sample_tensor[next_token_id] * logits_filter
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
             symbol_name = tid_to_symbol_map[prediction]            
@@ -325,7 +331,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                     mistakes[next_token_id] = 0
                 elif prediction != labels[next_token_id]: #we made first mistake at length
                     mistake_made = True 
-                    mistakes[next_token_id] = self.length_weight     
+                    mistakes[next_token_id] = self.err_weight
                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -340,7 +346,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 mistakes[next_token_id] = 0
             elif prediction != labels[next_token_id]: #we made first mistake at ast node 
                 mistake_made = True 
-                mistakes[next_token_id] = self.length_weight if labels[next_token_id] == nend_id else self.ast_weight
+                mistakes[next_token_id] = self.err_weight
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -368,7 +374,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
-        symbol_tensor = sample_tensor[token_id] * logits_filter + logits_filter
+        symbol_tensor = sample_tensor[token_id] * logits_filter
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
         prediction = torch.argmax(symbol_tensor).item()
@@ -377,7 +383,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             mistakes[token_id] = 0
         elif prediction != labels[token_id]: #we made first mistake at ast node 
             mistake_made = True
-            mistakes[token_id] = self.ast_weight
+            mistakes[token_id] = self.err_weight
             
         symbol_name = tid_to_symbol_map[prediction]
 
