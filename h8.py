@@ -133,7 +133,7 @@ tid_to_symbol_map = {k:v[0] for k, v in symbols_map.items()}
 def preprocess1(e):
     target_message = grammar_collector.build_message(e["target"], [])
     return {"source":e["source"], 
-            "target":"".join([symbol_to_token_map.get(w, ' ' + w.strip()) for w in target_message]) }
+            "target":"".join([symbol_to_token_map.get(w, ' ||' + w.strip()) for w in target_message]) }
 
 ds01_dict = {k:Dataset.from_list([preprocess1(el) for el in one_ds]) for k, one_ds in ds_dict.items()}
 ds01 = DatasetDict(ds01_dict)
@@ -285,8 +285,9 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # if mistake_made: #ignore new errors because mistake was alreeady made at root node
         # NOTE: here we cannot make a mistake on LST node - ignore it anyway
-        labels[token_id] = -100
-        mistakes[token_id] = 0     
+        if mistake_made:
+            labels[token_id] = -100
+            mistakes[token_id] = 0     
 
         if self.enable_logging:
             padding = "\t" * depth
