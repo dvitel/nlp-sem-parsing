@@ -1,4 +1,4 @@
-""" h8 == h6 but symbols are from original vocab """
+""" h8 == h4 but symbols are from original vocab """
 import sys
 from typing import Optional
 from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -75,8 +75,8 @@ def unprocess(message: 'list[str]'):
     return code #we preserve name of symbols but remove []
 
 ds_name = "dvitel/hearthstone"
-out_dir = "out/h6"
-result_path = "result/h6"
+out_dir = "out/h8"
+result_path = "result/h8"
 checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
@@ -201,7 +201,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.enable_logging = False
         # self.ast_weight = 10.
         # self.length_weight = 2.
-        self.err_weight = 10.
+        # self.err_weight = 10.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
@@ -220,12 +220,12 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
             prediction = torch.argmax(symbol_tensor).item()
             depths[token_id] = depth            
-            if mistake_made:
-                labels[token_id] = -100
-                mistakes[token_id] = 0
-            elif prediction != labels[token_id]:
-                mistake_made = True 
-                mistakes[token_id] = self.err_weight
+            # if mistake_made:
+            #     labels[token_id] = -100
+            #     mistakes[token_id] = 0
+            # elif prediction != labels[token_id]:
+            #     mistake_made = True 
+            #     mistakes[token_id] = self.err_weight
 
             next_token_id = token_id + 1
 
@@ -250,12 +250,12 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
 
-            if mistake_made:
-                labels[next_token_id] = -100       
-                mistakes[next_token_id] = 0     
-            elif prediction != labels[next_token_id]:
-                mistake_made = True 
-                mistakes[next_token_id] = self.err_weight    
+            # if mistake_made:
+            #     labels[next_token_id] = -100       
+            #     mistakes[next_token_id] = 0     
+            # elif prediction != labels[next_token_id]:
+            #     mistake_made = True 
+            #     mistakes[next_token_id] = self.err_weight    
 
             # if prediction not in tid_to_symbol_map:
             #     print(f"Cannot find {prediction} {tokenizer.decode(prediction)} in tid_to_symbol_map", file = sys.stderr)
@@ -285,9 +285,9 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # if mistake_made: #ignore new errors because mistake was alreeady made at root node
         # NOTE: here we cannot make a mistake on LST node - ignore it anyway
-        if mistake_made:
-            labels[token_id] = -100
-            mistakes[token_id] = 0     
+        # if mistake_made:
+        #     labels[token_id] = -100
+        #     mistakes[token_id] = 0     
 
         if self.enable_logging:
             padding = "\t" * depth
@@ -313,7 +313,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             
             # mask = torch.zeros_like(sample_tensor[next_token_id, :])
             # mask[label_ids] = 1
-            symbol_tensor = sample_tensor[next_token_id] * logits_filter
+            symbol_tensor = sample_tensor[next_token_id] * logits_filter + logits_filter
             # print("Masked p", masked_t)
             prediction = torch.argmax(symbol_tensor).item()
             symbol_name = tid_to_symbol_map[prediction]            
@@ -327,12 +327,12 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # sample_tensor[next_token_id, :] *= logits_filter
                 # depths[next_token_id] = depth
                 # next_token_id += 1 
-                if mistake_made:
-                    labels[next_token_id] = -100
-                    mistakes[next_token_id] = 0
-                elif prediction != labels[next_token_id]: #we made first mistake at length
-                    mistake_made = True 
-                    mistakes[next_token_id] = self.err_weight
+                # if mistake_made:
+                #     labels[next_token_id] = -100
+                #     mistakes[next_token_id] = 0
+                # elif prediction != labels[next_token_id]: #we made first mistake at length
+                #     mistake_made = True 
+                #     mistakes[next_token_id] = self.err_weight
                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -342,12 +342,12 @@ class PythonGrammarGPT2(torch.nn.Module):
             
             # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)
             symbol = grammar_collector.symbols[symbol_name]
-            if mistake_made: #if mistake made before in ast - do not try correct errors after
-                labels[next_token_id] = -100 
-                mistakes[next_token_id] = 0
-            elif prediction != labels[next_token_id]: #we made first mistake at ast node 
-                mistake_made = True 
-                mistakes[next_token_id] = self.err_weight
+            # if mistake_made: #if mistake made before in ast - do not try correct errors after
+            #     labels[next_token_id] = -100 
+            #     mistakes[next_token_id] = 0
+            # elif prediction != labels[next_token_id]: #we made first mistake at ast node 
+            #     mistake_made = True 
+            #     mistakes[next_token_id] = self.err_weight
             next_token_id += 1 
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -375,16 +375,16 @@ class PythonGrammarGPT2(torch.nn.Module):
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
         logits_filter[label_ids] = 1
-        symbol_tensor = sample_tensor[token_id] * logits_filter
+        symbol_tensor = sample_tensor[token_id] * logits_filter + logits_filter
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
         prediction = torch.argmax(symbol_tensor).item()
-        if mistake_made: #if mistake made before in ast - do not try correct errors after
-            labels[token_id] = -100 
-            mistakes[token_id] = 0
-        elif prediction != labels[token_id]: #we made first mistake at ast node 
-            mistake_made = True
-            mistakes[token_id] = self.err_weight
+        # if mistake_made: #if mistake made before in ast - do not try correct errors after
+        #     labels[token_id] = -100 
+        #     mistakes[token_id] = 0
+        # elif prediction != labels[token_id]: #we made first mistake at ast node 
+        #     mistake_made = True
+        #     mistakes[token_id] = self.err_weight
             
         symbol_name = tid_to_symbol_map[prediction]
 
@@ -471,23 +471,23 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # Shift so that tokens < n predict n
                 # labels = kwargs["labels"]
             shift_logits = grammar_logits[..., :-1, :].contiguous()
-            shift_labels = useful_labels[..., 1:].contiguous()
-            shift_mistakes = mistakes[..., :-1].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # shift_mistakes = mistakes[..., :-1].contiguous()
             # shift_depth = depthes_diffs_w[..., :-1]
             # predictions = torch.argmax(shift_logits, dim=-1)
             # misses = (shift_labels != -100).float()
             # misses *= (predictions != shift_labels).float()
 
             # Flatten the tokens
-            loss_fct = torch.nn.CrossEntropyLoss(reduction = "none")
+            loss_fct = torch.nn.CrossEntropyLoss() #reduction = "none")
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            loss_view = loss.view(shift_logits.size(0), shift_logits.size(1))
+            # loss_view = loss.view(shift_logits.size(s0), shift_logits.size(1))
 
-            loss_view *= shift_mistakes
-            loss_per_sample = loss_view.mean(axis=1)    
-            weighted_loss = loss_per_sample.mean()        
+            # loss_view *= shift_mistakes
+            # loss_per_sample = loss_view.mean(axis=1)    
+            # weighted_loss = loss_per_sample.mean()        
         return CausalLMOutputWithCrossAttentions(
-            loss = weighted_loss,
+            loss = loss,
             logits = grammar_logits,
             past_key_values = gpt2_result.past_key_values,
             hidden_states = gpt2_result.hidden_states,
@@ -527,8 +527,8 @@ args = TrainingArguments(
     fp16=True, 
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
-    seed = seed, label_names = ["labels"],
-    hub_model_id = "h6", push_to_hub = True
+    seed = seed, label_names = ["labels"]
+    # hub_model_id = "h8", push_to_hub = True
 )
 
 model = PythonGrammarGPT2()
@@ -548,4 +548,4 @@ output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_
 print(output.metrics) #test set metrics
 
 # trainer.save_model(result_path)
-trainer.push_to_hub()
+# trainer.push_to_hub()
