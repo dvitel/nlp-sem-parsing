@@ -452,7 +452,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
             return labels.shape[0]
         assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
-        assert labels[token_id] == lst_id, f"Should be start of list, but {labels[token_id]} at {token_id}. All labels: {labels}"
+        assert labels[token_id] == 0, f"Should be start of list, but {labels[token_id]} at {token_id}. All labels: {labels}"
 
         # ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
         # symbol_name = tid_to_symbol_map[lst_id]
