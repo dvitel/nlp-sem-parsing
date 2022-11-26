@@ -436,7 +436,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             token_id += 1
 
 
-        while token_id < labels.size(0) and labels[token_id] != -100:
+        while token_id < labels.shape[0] and labels[token_id] != -100:
 
             prediction = labels[token_id]
             global_labels[token_id] = prediction
@@ -467,7 +467,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         #NOTE: we do not know how long list should be
         # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
-        while token_id < labels.size(0) and labels[token_id] != -100:
+        while token_id < labels.shape[0] and labels[token_id] != -100:
 
             ffn = self.ffns[attr.group] #pick FFN corresponding to current group
             # symbol_name = tid_to_symbol_map[labels[token_id]]
