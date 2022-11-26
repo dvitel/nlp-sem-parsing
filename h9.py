@@ -516,8 +516,8 @@ class PythonGrammarGPT2(torch.nn.Module):
 # t1 (10)  t2 t3 
 
 model = PythonGrammarGPT2()
-# model.to("cuda")
-model.to("cpu")
+model.to("cuda")
+# model.to("cpu")
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
@@ -553,8 +553,8 @@ args = TrainingArguments(
     lr_scheduler_type="cosine",
     learning_rate=learning_rate,
     save_steps=eval_steps,
-    # fp16=True, 
-    no_cuda = True,
+    fp16=True, 
+    # no_cuda = True,
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
     seed = seed, label_names = ["labels"]
