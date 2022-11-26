@@ -472,7 +472,11 @@ class PythonGrammarGPT2(torch.nn.Module):
                     logits = torch.nn.functional.pad(logits, (0, num_to_pad))
                 padded_logits.append(logits)                
             sample_logits = torch.stack(padded_logits)
-            all_logits_list.append(sample_logits)
+            positions_to_pad = max_length - sample_logits.size(0)
+            sample_logits_padded = sample_logits
+            if positions_to_pad > 0:
+                sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad))
+            all_logits_list.append(sample_logits_padded)
         all_logits = pad_sequence(all_logits_list, batch_first=True)
 
         if labels is not None:
