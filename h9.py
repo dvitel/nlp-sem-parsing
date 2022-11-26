@@ -82,7 +82,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 200
-eval_steps = 1600
+eval_steps = 100
 learning_rate = 2e-5
 seed = 17
 
@@ -151,45 +151,13 @@ def preprocess(e):
 
 ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
-
-bleu = evaluate.load("bleu")
-codebleu = evaluate.load("dvitel/codebleu")
-chrF = evaluate.load("chrf")
-exact_match = evaluate.load("exact_match")
-def compute_metrics(eval_pred):
-    shift_labels = eval_pred.label_ids[...,1:]
-    shift_logits = eval_pred.predictions[..., :-1, :]
-    prediction_labels = np.argmax(shift_logits, axis=-1)   
-    predictions = []
-    references = []
-    first_not_matched = 4
-    for preds, labels in zip(prediction_labels, shift_labels):      
-      label_map = labels >= 0
-      labels_view = labels[label_map]
-      pred_view = preds[label_map]
-      l_text = tokenizer.decode(labels_view)
-      p_text = tokenizer.decode(pred_view)
-    #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
-    #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
-      predictions.append(p_text)
-      references.append(l_text)
-      if p_text != l_text and first_not_matched > 0:      
-        print("EV L", l_text)
-        print("EV P", p_text) 
-        print()
-        first_not_matched -= 1
-    accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
-    bleu_metric = bleu.compute(predictions = predictions, references = references)   
-    codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
-    chrf_metric = chrF.compute(predictions = predictions, references = references)  
-    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
-
 nend_id = symbol_to_tid_map[NEND]
 lst_id = symbol_to_tid_map[LST]
 
 torch.set_printoptions(edgeitems=100) #for debugging only
 
 #4891758117 - total params
+#157306242
 #81962496
 class FFN(torch.nn.Module):
     
@@ -453,6 +421,102 @@ class PythonGrammarGPT2(torch.nn.Module):
                 token_id = self._label_list_arg(local_labels, labels, a, token_id)
         return token_id
 
+    def _symbol_constant_arg(self, global_labels, labels, parent: Symbol, token_id):
+        if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
+            return labels.shape[0]
+        if parent.type == ast.Constant:
+
+            ffn = self.ffns["types"] #pick FFN corresponding to current group
+
+            # symbol_name = tid_to_symbol_map[labels[token_id]]
+            assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of types: {ffn['labels']}"            
+            symbol_name = ffn['labels'][labels[token_id]]
+            global_labels[token_id] = symbol_to_tid_map[symbol_name]
+
+            token_id += 1
+
+
+        while token_id < labels.size(0) and labels[token_id] != -100:
+
+            prediction = labels[token_id]
+            global_labels[token_id] = prediction
+
+            token_id += 1 
+
+            if prediction == nend_id:
+                break             
+
+        return token_id
+
+    def _symbol_list_arg(self, global_labels, labels, attr: SymbolAttr, token_id):
+        if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
+            return labels.shape[0]
+        assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
+        assert labels[token_id] == lst_id, f"Should be start of list, but {labels[token_id]} at {token_id}. All labels: {labels}"
+
+        # ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
+        # symbol_name = tid_to_symbol_map[lst_id]
+        # local_label_id = ffn['labels_map'][LST] #TODO: better to add assert probably
+        global_labels[token_id] = lst_id #at start we have only 1 label with local id == 0
+
+        # ffn_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
+        # preds[token_id] = lst_id
+        
+        token_id += 1
+
+        #NOTE: we do not know how long list should be
+        # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
+        # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
+        while token_id < labels.size(0) and labels[token_id] != -100:
+
+            ffn = self.ffns[attr.group] #pick FFN corresponding to current group
+            # symbol_name = tid_to_symbol_map[labels[token_id]]
+            assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"            
+            symbol_name = ffn['labels'][labels[token_id]]
+            global_labels[token_id] = symbol_to_tid_map[symbol_name]
+
+            token_id += 1 
+            if symbol_name == NEND:                
+                break 
+            
+            symbol = grammar_collector.symbols[symbol_name]            
+            for a in symbol.attrs:
+                if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                    continue #tensor does not have logits for this attr
+                elif (not a.is_seq) and a.group is None:
+                    token_id = self._symbol_constant_arg(global_labels, labels, symbol, token_id)
+                elif not a.is_seq:
+                    token_id = self._symbol_symbol_arg(global_labels, labels, a, token_id) 
+                else: #list 
+                    token_id = self._symbol_list_arg(global_labels, labels, a, token_id)
+
+        return token_id
+
+    def _symbol_symbol_arg(self, global_labels, labels, attr: SymbolAttr, token_id):
+        if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
+            return labels.shape[0] # we already set all logits ilter
+        assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
+        assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
+
+        ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
+        # symbol_name = tid_to_symbol_map[labels[token_id]]
+        assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"
+        symbol_name = ffn['labels'][labels[token_id]]
+        global_labels[token_id] = symbol_to_tid_map[symbol_name]
+
+        symbol = grammar_collector.symbols[symbol_name]
+        token_id += 1
+        for a in symbol.attrs:
+            if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                continue #tensor does not have logits for this attr
+            elif (not a.is_seq) and a.group is None:
+                token_id = self._symbol_constant_arg(global_labels, labels, symbol, token_id)
+            elif not a.is_seq:
+                token_id = self._symbol_symbol_arg(global_labels, labels, a, token_id) 
+            else: #list 
+                token_id = self._symbol_list_arg(global_labels, labels, a, token_id)
+        return token_id
+
     def forward(
         self, 
         input_ids: Optional[torch.LongTensor] = None,
@@ -522,6 +586,42 @@ class PythonGrammarGPT2(torch.nn.Module):
 model = PythonGrammarGPT2()
 model.to("cuda")
 # model.to("cpu")
+
+bleu = evaluate.load("bleu")
+codebleu = evaluate.load("dvitel/codebleu")
+chrF = evaluate.load("chrf")
+exact_match = evaluate.load("exact_match")
+def compute_metrics(eval_pred):
+    shift_labels = eval_pred.label_ids[...,1:]
+    shift_logits = eval_pred.predictions[..., :-1, :]
+    prediction_labels = np.argmax(shift_logits, axis=-1)   
+    predictions = []
+    references = []
+    first_not_matched = 4
+    for preds, labels in zip(prediction_labels, shift_labels):      
+      label_map = labels >= 0
+      labels_view = labels[label_map]
+      decoded_labels = np.full_like(labels_view, -100)
+      model._symbol_symbol_arg(decoded_labels, labels_view, start_symbol, 0)
+      pred_view = preds[label_map]
+      decoded_pred = np.full_like(pred_view, -100)
+      model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
+      l_text = tokenizer.decode(decoded_labels)
+      p_text = tokenizer.decode(decoded_pred)
+    #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
+    #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
+      predictions.append(p_text)
+      references.append(l_text)
+      if p_text != l_text and first_not_matched > 0:      
+        print("EV L", l_text)
+        print("EV P", p_text) 
+        print()
+        first_not_matched -= 1
+    accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
+    bleu_metric = bleu.compute(predictions = predictions, references = references)   
+    codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
+    chrf_metric = chrF.compute(predictions = predictions, references = references)  
+    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
