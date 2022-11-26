@@ -564,8 +564,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             # shift_mistakes = mistakes[..., :-1].contiguous()
             # shift_depth = depthes_diffs_w[..., :-1]
             predictions = torch.argmax(shift_logits, dim=-1)
-            print("L", shift_labels[0][shift_labels != -100])
-            print("P", predictions[0][shift_labels != -100])
+            sh_l = shift_labels[0]
+            pd = predictions[0]
+            print("TR L", sh_l[sh_l != -100])
+            print("TR P", pd[sh_l != -100])
             # misses = (shift_labels != -100).float()
             # misses *= (predictions != shift_labels).float()
 
