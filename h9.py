@@ -154,7 +154,7 @@ ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"]
 nend_id = symbol_to_tid_map[NEND]
 lst_id = symbol_to_tid_map[LST]
 
-torch.set_printoptions(edgeitems=100) #for debugging only
+torch.set_printoptions(edgeitems=10) #for debugging only
 
 #4891758117 - total params
 #157306242
@@ -542,6 +542,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad))
             all_logits_list.append(sample_logits_padded)
         all_logits = pad_sequence(all_logits_list, batch_first=True)
+        for x, y in zip(all_logits[0], gpt2_result.logits[0]):
+            print("x:", x)
+            print("y:", y)
 
         if labels is not None:
             # we need to reecompute loss now, because we modified logits
