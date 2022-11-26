@@ -85,7 +85,6 @@ num_epochs = 200
 eval_steps = 1600
 learning_rate = 2e-5
 seed = 17
-ffn_coef = 8
 
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -190,23 +189,24 @@ lst_id = symbol_to_tid_map[LST]
 
 torch.set_printoptions(edgeitems=100) #for debugging only
 
+#4891758117 - total params
+#81962496
 class FFN(torch.nn.Module):
     
-    def __init__(self, input_size, output_size, coef = ffn_coef):
+    def __init__(self, input_size, output_size):
         super(FFN, self).__init__()
-        out_size = input_size // coef
-        self.FC1 = torch.nn.Linear(in_features=input_size, out_features=out_size, dtype = torch.float16)
+        self.FC1 = torch.nn.Linear(in_features=input_size, out_features=100)
         self.relu1 = torch.nn.ReLU()
-        out_out_size = out_size // coef
-        self.FC2 = torch.nn.Linear(in_features=out_size, out_features=out_out_size, dtype = torch.float16)
+        self.FC2 = torch.nn.Linear(in_features=100, out_features=output_size)
         self.relu2 = torch.nn.ReLU()
-        self.FC3 = torch.nn.Linear(in_features=out_out_size, out_features=output_size, dtype = torch.float16)
+        # self.FC3 = torch.nn.Linear(in_features=out_out_size, out_features=output_size)
         pass
     
     def forward(self, x):        
         out = self.relu1(self.FC1(x))
         out = self.relu2(self.FC2(out))
-        return self.FC3(out)
+        # return self.FC3(out)
+        return out
 
 #https://docs.python.org/3/library/ast.html
 class PythonGrammarGPT2(torch.nn.Module):
