@@ -542,9 +542,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad))
             all_logits_list.append(sample_logits_padded)
         all_logits = pad_sequence(all_logits_list, batch_first=True)
-        for x, y in zip(all_logits[0], gpt2_result.logits[0]):
-            print("x:", x)
-            print("y:", y)
+        # for x, y in zip(all_logits[0], gpt2_result.logits[0]):
+        #     print("x:", x)
+        #     print("y:", y)
 
         if labels is not None:
             # we need to reecompute loss now, because we modified logits
@@ -563,7 +563,9 @@ class PythonGrammarGPT2(torch.nn.Module):
             shift_labels = labels[..., 1:].contiguous()
             # shift_mistakes = mistakes[..., :-1].contiguous()
             # shift_depth = depthes_diffs_w[..., :-1]
-            # predictions = torch.argmax(shift_logits, dim=-1)
+            predictions = torch.argmax(shift_logits, dim=-1)
+            print("L", shift_labels[0][shift_labels != -100])
+            print("P", predictions[0][shift_labels != -100])
             # misses = (shift_labels != -100).float()
             # misses *= (predictions != shift_labels).float()
 
