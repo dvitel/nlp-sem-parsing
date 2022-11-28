@@ -664,8 +664,8 @@ args = TrainingArguments(
     lr_scheduler_type="cosine",
     learning_rate=learning_rate,
     save_steps=eval_steps,
-    # fp16=True, 
-    no_cuda = True,
+    fp16=True, 
+    # no_cuda = True,
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
     seed = seed, label_names = ["labels"]
