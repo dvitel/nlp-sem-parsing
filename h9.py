@@ -528,6 +528,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         for sample_id in range(gpt2_result.logits.size(0)):
             token_id = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()[0].item() #position of separator between <s>_<t>
             ffn_logits = []
+            for _ in range(token_id):            
+                ffn_logits.append(torch.tensor([]))
             self._decode_symbol_arg(ffn_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
             padded_logits = []
             for logits in ffn_logits:
@@ -563,13 +565,11 @@ class PythonGrammarGPT2(torch.nn.Module):
             shift_labels = labels[..., 1:].contiguous()
             # shift_mistakes = mistakes[..., :-1].contiguous()
             # shift_depth = depthes_diffs_w[..., :-1]
-            predictions = torch.argmax(shift_logits, dim=-1)
-            sh_l = shift_labels[0]
-            pd = predictions[0]
-            print("TR L", sh_l[sh_l != -100])
-            print("TR P", pd[sh_l != -100])
-            # misses = (shift_labels != -100).float()
-            # misses *= (predictions != shift_labels).float()
+            # predictions = torch.argmax(shift_logits, dim=-1)
+            # sh_l = shift_labels[0]
+            # pd = predictions[0]
+            # print("TR L", sh_l[sh_l != -100])
+            # print("TR P", pd[sh_l != -100])
 
             # Flatten the tokens
             loss_fct = torch.nn.CrossEntropyLoss() #reduction = "none")
@@ -664,8 +664,8 @@ args = TrainingArguments(
     lr_scheduler_type="cosine",
     learning_rate=learning_rate,
     save_steps=eval_steps,
-    fp16=True, 
-    # no_cuda = True,
+    # fp16=True, 
+    no_cuda = True,
     load_best_model_at_end = True, 
     metric_for_best_model = "exact_match",    
     seed = seed, label_names = ["labels"]
