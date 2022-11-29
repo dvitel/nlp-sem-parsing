@@ -529,7 +529,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             token_id = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()[0].item() #position of separator between <s>_<t>
             ffn_logits = []
             for _ in range(token_id):            
-                ffn_logits.append(torch.tensor([]))
+                ffn_logits.append(torch.tensor([], device = self.device))
             self._decode_symbol_arg(ffn_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
             padded_logits = []
             for logits in ffn_logits:
