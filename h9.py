@@ -503,6 +503,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"
         symbol_name = ffn['labels'][labels[token_id]]
         global_labels[token_id] = symbol_to_tid_map[symbol_name]
+        # assert global_labels[token_id] < len(tokenizer), f"Decoded label is outside range: "
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
@@ -529,7 +530,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             token_id = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()[0].item() #position of separator between <s>_<t>
             ffn_logits = []
             for _ in range(token_id):            
-                ffn_logits.append(torch.tensor([], device = gpt2_result.logits.device))
+                ffn_logits.append(torch.zeros_like(gpt2_result.logits[sample_id]))
             self._decode_symbol_arg(ffn_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
             padded_logits = []
             for logits in ffn_logits:
@@ -605,25 +606,31 @@ def compute_metrics(eval_pred):
     predictions = []
     references = []
     first_not_matched = 4
-    for preds, labels in zip(prediction_labels, shift_labels):      
-      label_map = labels >= 0
-      labels_view = labels[label_map]
-      decoded_labels = np.full_like(labels_view, -100)
-      model._symbol_symbol_arg(decoded_labels, labels_view, start_symbol, 0)
-      pred_view = preds[label_map]
-      decoded_pred = np.full_like(pred_view, -100)
-      model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
-      l_text = tokenizer.decode(decoded_labels)
-      p_text = tokenizer.decode(decoded_pred)
-    #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
-    #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
-      predictions.append(p_text)
-      references.append(l_text)
-      if p_text != l_text and first_not_matched > 0:      
-        print("EV L", l_text)
-        print("EV P", p_text) 
-        print()
-        first_not_matched -= 1
+    for preds, labels in zip(prediction_labels, shift_labels):              
+        label_map = labels >= 0
+        labels_view = labels[label_map]
+        decoded_labels = np.full_like(labels_view, -100)
+        model._symbol_symbol_arg(decoded_labels, labels_view, start_symbol, 0)
+        pred_view = preds[label_map]
+        decoded_pred = np.full_like(pred_view, -100)
+        model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
+        try:
+            l_text = tokenizer.decode(decoded_labels)
+            p_text = tokenizer.decode(decoded_pred[decoded_pred >= 0])
+            #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
+            #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
+            predictions.append(p_text)
+            references.append(l_text)
+            if p_text != l_text and first_not_matched > 0:      
+                print("EV L", l_text)
+                print("EV P", p_text) 
+                print()
+                first_not_matched -= 1
+        except OverflowError as e:
+            print("Pred: ", decoded_pred)
+            print("Out of range: ", decoded_pred[decoded_pred >= len(tokenizer)])
+            print(e, file = sys.stderr)
+            sys.exit(1)
     accuracy_metric = exact_match.compute(predictions = predictions, references = references)   
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
