@@ -5,3 +5,4 @@ hws/*
 *.err 
 out/*
 codebleu/*
+__pycache__/*

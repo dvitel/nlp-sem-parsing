@@ -9,6 +9,11 @@ pandas = "*"
 tree-sitter = "==0.2.2"
 huggingface-hub = "*"
 astunparse = "*"
+transformers = "*"
+evaluate = "*"
+accelerate = "*"
+nvidia-ml-py3 = "*"
+sacrebleu = "*"
 
 [dev-packages]
 
