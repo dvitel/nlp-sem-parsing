@@ -82,7 +82,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 200
-eval_steps = 1600
+eval_steps = 100
 learning_rate = 2e-5
 seed = 17
 
@@ -465,6 +465,8 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         token_id += 1
 
+        print(f'[lst] START in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+
         #NOTE: we do not know how long list should be
         # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
@@ -474,14 +476,16 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             categories = self.categories[group_id] #pick categories corresponding to current group
             # symbol_name = tid_to_symbol_map[labels[token_id]]
-            assert labels[token_id] < len(categories['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {categories['labels']}"            
+            assert labels[token_id] < len(categories['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {categories['labels']}. Parent {attr.symbol_name}:{attr.name}"            
             symbol_name = categories['labels'][labels[token_id]]
             global_labels[token_id] = symbol_to_tid_map[symbol_name]
 
             token_id += 1 
             if symbol_name == NEND:                
+                print(f'[lst] {(token_id-1)} BREAK {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
                 break 
             
+            print(f'[lst] {(token_id - 1)} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
             symbol = grammar_collector.symbols[symbol_name]            
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -512,6 +516,8 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_name = categories['labels'][labels[token_id]]
         global_labels[token_id] = symbol_to_tid_map[symbol_name]
             # assert global_labels[token_id] < len(tokenizer), f"Decoded label is outside range: "
+
+        print(f'[sym] {token_id} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
@@ -620,17 +626,19 @@ def compute_metrics(eval_pred):
     shift_labels = eval_pred.label_ids[...,1:]
     shift_logits = eval_pred.predictions[..., :-1, :]
     prediction_labels = np.argmax(shift_logits, axis=-1)   
-    miss_idxs = np.where(shift_labels != prediction_labels)
-    miss_idxs_in_sentence = np.mean(miss_idxs[-1]) if len(miss_idxs[-1]) > 0 else None
     predictions = []
     references = []
     first_not_matched = 4
+    first_miss_idxs = []
     for preds, labels in zip(prediction_labels, shift_labels):              
         label_map = labels >= 0
         labels_view = labels[label_map]
         decoded_labels = np.full_like(labels_view, -100)
         model._symbol_symbol_arg(decoded_labels, labels_view, start_symbol, 0)
         pred_view = preds[label_map]
+        miss_idxs = np.where(labels_view != pred_view)[0]
+        if len(miss_idxs) > 0:
+            first_miss_idxs.append(miss_idxs[0])
         decoded_pred = np.full_like(pred_view, -100)
         model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
         decoded_labels_pos = decoded_pred[decoded_pred >= 0]
@@ -655,6 +663,7 @@ def compute_metrics(eval_pred):
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
+    miss_idxs_in_sentence = np.mean(first_miss_idxs) if len(first_miss_idxs) > 0 else None
     return {"exact_match": accuracy_metric["exact_match"], "miss_pos": miss_idxs_in_sentence, "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
