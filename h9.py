@@ -267,7 +267,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         coef = 1
         while token_id < sample_logits.size(0):
 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
             logits = ffn['ffn'](sample_logits[token_id])            
 
@@ -310,7 +310,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             ffn_logits.append(torch.abs(sample_logits[token_id][symbol_id:symbol_id+1]))
         else: 
 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
             logits = ffn['ffn'](sample_logits[token_id])
             logits_no_nend = logits[:-1]
@@ -403,7 +403,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
         while token_id < labels.size(0) and labels[token_id].item() != -100:
 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
             symbol_name = tid_to_symbol_map[labels[token_id].item()]
             assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}"            
@@ -437,7 +437,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_name = list(attr.possible_symbols)[0]
             local_labels[token_id] = 0
         else: 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group        
             symbol_name = tid_to_symbol_map[labels[token_id].item()]
             assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}"
@@ -510,7 +510,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
         while token_id < labels.shape[0] and labels[token_id] != -100:
 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
 
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
             # symbol_name = tid_to_symbol_map[labels[token_id]]
@@ -545,7 +545,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             symbol_name = list(attr.possible_symbols)[0]
         else: 
 
-            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group        
             # symbol_name = tid_to_symbol_map[labels[token_id]]
             assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"
