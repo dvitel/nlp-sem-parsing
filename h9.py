@@ -82,7 +82,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 200
-eval_steps = 200
+eval_steps = 1600
 learning_rate = 2e-5
 seed = 17
 
@@ -231,7 +231,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if token_id >= sample_logits.size(0):
             return sample_logits.size(0)
 
-        ffn_logits.append(torch.abs(sample_logits[token_id][literal_start_id:literal_start_id+1]))
+        ffn_logits.append(sample_logits[token_id][literal_start_id:literal_start_id+1])
         
         token_id += 1
 
@@ -256,7 +256,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             return sample_logits.size(0)        
         assert attr.is_seq and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot read sequence for {attr}"
 
-        ffn_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
+        ffn_logits.append(sample_logits[token_id][lst_id:lst_id+1])
         # preds[token_id] = lst_id
         
         token_id += 1
@@ -307,7 +307,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if len(attr.possible_symbols) == 1: #one possible case 
             symbol_name = list(attr.possible_symbols)[0]
             symbol_id = symbol_to_tid_map[symbol_name]
-            ffn_logits.append(torch.abs(sample_logits[token_id][symbol_id:symbol_id+1]))
+            ffn_logits.append(sample_logits[token_id][symbol_id:symbol_id+1])
         else: 
 
             group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
@@ -392,9 +392,6 @@ class PythonGrammarGPT2(torch.nn.Module):
         # symbol_name = tid_to_symbol_map[lst_id]
         # local_label_id = ffn['labels_map'][LST] #TODO: better to add assert probably
         local_labels[token_id] = 0 #at start we have only 1 label with local id == 0
-
-        # ffn_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
-        # preds[token_id] = lst_id
         
         token_id += 1
 
@@ -502,9 +499,6 @@ class PythonGrammarGPT2(torch.nn.Module):
         # symbol_name = tid_to_symbol_map[lst_id]
         # local_label_id = ffn['labels_map'][LST] #TODO: better to add assert probably
         global_labels[token_id] = lst_id #at start we have only 1 label with local id == 0
-
-        # ffn_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
-        # preds[token_id] = lst_id
         
         token_id += 1
 
@@ -577,25 +571,33 @@ class PythonGrammarGPT2(torch.nn.Module):
     ):
         gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask)        
         all_logits_list = []
+        global_min_logit_value = 0.0
         for sample_id in range(gpt2_result.logits.size(0)):
             token_id = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()[0].item() #position of separator between <s>_<t>
-            ffn_logits = []
+            grammar_logits = []
             for _ in range(token_id):            
-                ffn_logits.append(torch.tensor([], device = gpt2_result.logits.device))
-            self._decode_symbol_arg(ffn_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
+                grammar_logits.append(torch.tensor([], device = gpt2_result.logits.device))
+            self._decode_symbol_arg(grammar_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
             padded_logits = []
-            for logits in ffn_logits:
+            min_logit_value = 0.0
+            for logits in grammar_logits:
+                if len(logits) == 0: 
+                    continue
+                cur_min_value = torch.min(logits).item()
+                min_logit_value = cur_min_value if min_logit_value > cur_min_value else min_logit_value
+            for logits in grammar_logits:
                 num_to_pad = self.max_label_num - len(logits)
                 if num_to_pad > 0:
-                    logits = torch.nn.functional.pad(logits, (0, num_to_pad))
+                    logits = torch.nn.functional.pad(logits, (0, num_to_pad), value = min_logit_value)
                 padded_logits.append(logits)                
             sample_logits = torch.stack(padded_logits)
             positions_to_pad = max_length - sample_logits.size(0)
             sample_logits_padded = sample_logits
             if positions_to_pad > 0:
-                sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad))
+                sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad), value = min_logit_value)
             all_logits_list.append(sample_logits_padded)
-        all_logits = pad_sequence(all_logits_list, batch_first=True)
+            global_min_logit_value = min_logit_value if global_min_logit_value > min_logit_value else global_min_logit_value
+        all_logits = pad_sequence(all_logits_list, batch_first=True, padding_value = global_min_logit_value)
         # for x, y in zip(all_logits[0], gpt2_result.logits[0]):
         #     print("x:", x)
         #     print("y:", y)
@@ -657,17 +659,22 @@ def compute_metrics(eval_pred):
     predictions = []
     references = []
     first_not_matched = 4
+    first_miss_idxs = []
     for preds, labels in zip(prediction_labels, shift_labels):              
         label_map = labels >= 0
         labels_view = labels[label_map]
         decoded_labels = np.full_like(labels_view, -100)
         model._symbol_symbol_arg(decoded_labels, labels_view, start_symbol, 0)
         pred_view = preds[label_map]
+        miss_idxs = np.where(labels_view != pred_view)[0]
+        if len(miss_idxs) > 0:
+            first_miss_idxs.append(miss_idxs[0])
         decoded_pred = np.full_like(pred_view, -100)
         model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
+        decoded_labels_pos = decoded_pred[decoded_pred >= 0]
         try:
             l_text = tokenizer.decode(decoded_labels)
-            p_text = tokenizer.decode(decoded_pred[decoded_pred >= 0])
+            p_text = tokenizer.decode(decoded_labels_pos)
             #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
             #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
             predictions.append(p_text)
@@ -686,7 +693,8 @@ def compute_metrics(eval_pred):
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
-    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+    miss_idxs_in_sentence = np.mean(first_miss_idxs) if len(first_miss_idxs) > 0 else None
+    return {"exact_match": accuracy_metric["exact_match"], "miss_pos": miss_idxs_in_sentence, "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id

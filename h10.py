@@ -650,7 +650,7 @@ def compute_metrics(eval_pred):
         decoded_pred = np.full_like(pred_view, -100)
         model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
         decoded_labels_pos = decoded_pred[decoded_pred >= 0]
-        try:            
+        try:
             l_text = tokenizer.decode(decoded_labels)
             p_text = tokenizer.decode(decoded_labels_pos)
             #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
