@@ -620,6 +620,8 @@ def compute_metrics(eval_pred):
     shift_labels = eval_pred.label_ids[...,1:]
     shift_logits = eval_pred.predictions[..., :-1, :]
     prediction_labels = np.argmax(shift_logits, axis=-1)   
+    miss_idxs = np.where(shift_labels != prediction_labels)
+    miss_idxs_in_sentence = np.mean(miss_idxs[-1]) if len(miss_idxs[-1]) > 0 else None
     predictions = []
     references = []
     first_not_matched = 4
@@ -631,9 +633,10 @@ def compute_metrics(eval_pred):
         pred_view = preds[label_map]
         decoded_pred = np.full_like(pred_view, -100)
         model._symbol_symbol_arg(decoded_pred, pred_view, start_symbol, 0)
-        try:
+        decoded_labels_pos = decoded_pred[decoded_pred >= 0]
+        try:            
             l_text = tokenizer.decode(decoded_labels)
-            p_text = tokenizer.decode(decoded_pred[decoded_pred >= 0])
+            p_text = tokenizer.decode(decoded_labels_pos)
             #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
             #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
             predictions.append(p_text)
@@ -652,7 +655,7 @@ def compute_metrics(eval_pred):
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
-    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+    return {"exact_match": accuracy_metric["exact_match"], "miss_pos": miss_idxs_in_sentence, "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm = False)
 eos_id = tokenizer.eos_token_id
