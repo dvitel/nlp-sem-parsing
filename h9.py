@@ -413,10 +413,10 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             token_id += 1 
             if symbol_name == NEND:    
-                print(f'BREAK Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+                # print(f'BREAK Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
                 break 
             
-            print(f'Continue Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+            # print(f'Continue Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
             symbol = grammar_collector.symbols[symbol_name]            
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema

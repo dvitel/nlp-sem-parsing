@@ -185,6 +185,8 @@ class GrammarCollector():
                 message.append(literal_type)
             if node is not None:
                 message.append(str(node))
+            else:
+                message.append("")
             message.append(NEND)
         return message
 
