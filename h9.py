@@ -82,7 +82,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 200
-eval_steps = 100
+eval_steps = 200
 learning_rate = 2e-5
 seed = 17
 

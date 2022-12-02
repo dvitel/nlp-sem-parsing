@@ -333,9 +333,9 @@ class GrammarCollector():
 # v.collect_metadata(t)
 # print(v.build_message(t, []))
 
-v = GrammarCollector()
-for t in tasts:
-    v.collect_metadata(t)    
+# v = GrammarCollector()
+# for t in tasts:
+#     v.collect_metadata(t)    
 
 # v.symbols['[FunctionDef]']
     # ]       ]", "
