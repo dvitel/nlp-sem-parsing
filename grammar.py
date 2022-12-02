@@ -68,10 +68,14 @@ def find_child_ast_clss(bcls):
 @dataclass
 class SymbolAttr:
     name: str 
+    symbol_name: str
     is_seq: bool
     has_values: bool
     group: Optional[type] = None #grammar type from ast.AST
     type: Optional[type] = None
+    #defines Symbols that are used as in child fields from training set
+    # Example: { [ClassDef]: {body: {[FuncDef]}}} - we do not consider any other stmts for body if class contained only function definitions
+    possible_symbols: 'set[str]' = field(default_factory = set)
 
 @dataclass
 class Symbol:
@@ -80,7 +84,7 @@ class Symbol:
     group: Optional[type] = None # derived classes from ast.AST
     attrs: 'list[SymbolAttr]' = field(default_factory = list)
 
-start_symbol = SymbolAttr("", is_seq = False, has_values = True, group = ast.mod)
+start_symbol = SymbolAttr("", "", is_seq = False, has_values = True, group = ast.mod, possible_symbols = {'[Module]'})
 
 class GrammarCollector():
     ''' traverse training sample and collects used nodes from grammar '''
@@ -106,9 +110,12 @@ class GrammarCollector():
         g = cur.__base__ if cur.__base__ != ast.AST else cur
         return g
 
-    def collect_metadata(self, node, parent_symbol = None):
+    def collect_metadata(self, node, parent_symbol = None, parent_symbol_attr = None):
         if isinstance(node, ast.AST):
             symbol_name = self.get_name(node.__class__)
+
+            if parent_symbol_attr is not None: 
+                parent_symbol_attr.possible_symbols.add(symbol_name)
 
             if symbol_name not in self.symbols:
                 self.symbols[symbol_name] = Symbol(symbol_name, node.__class__)
@@ -117,10 +124,13 @@ class GrammarCollector():
             symbol.group = self.get_group(node)
             self.groups.setdefault(symbol.group, set()).add(symbol_name)
 
+            # attr_children = self.children.setdefault(symbol_name, {})
+
             for attr_pos, (attr_name, attr_val) in enumerate(ast.iter_fields(node)):
                 if attr_pos >= len(symbol.attrs):
-                    symbol.attrs.append(SymbolAttr(attr_name, False, False))
+                    symbol.attrs.append(SymbolAttr(attr_name, symbol_name, False, False))
                 attr = symbol.attrs[attr_pos]
+                # children = attr_children.setdefault(attr.name, {})
                 if type(attr_val) == list:
                     attr.is_seq = True
                     attr.has_values = attr.has_values or (len(attr_val) > 0)
@@ -131,10 +141,10 @@ class GrammarCollector():
                     attr.group = self.get_group(attr_val)
                     if attr.group is None and not isinstance(node, ast.Constant):
                         attr.type = type(attr_val)
-                self.collect_metadata(attr_val, parent_symbol = symbol)
+                self.collect_metadata(attr_val, parent_symbol = symbol, parent_symbol_attr = attr)
         elif type(node) == list:
             for n in node:
-                self.collect_metadata(n)
+                self.collect_metadata(n, parent_symbol_attr = parent_symbol_attr)
         elif node is not None or (parent_symbol is not None and parent_symbol.type == ast.Constant):
             node_type = type(node)
             literal_type = self.get_name(node_type)            
@@ -159,7 +169,7 @@ class GrammarCollector():
         elif type(node) == list:
             assert qattr.is_seq, f"Rendered node {node} should have list arity, but {qattr} is given. Last node: {message[-1] if len(message) > 0 else None}"
             message.append(LST)
-            ch_attr = SymbolAttr("", is_seq=False, has_values=True, group = qattr.group)
+            ch_attr = SymbolAttr("", qattr.symbol_name, is_seq=False, has_values=True, group = qattr.group)
             for n in node:
                 self.build_message(n, message, ch_attr)
             message.append(NEND)
@@ -226,7 +236,7 @@ class GrammarCollector():
         # we start reading mq till moment when we bump into umatched NEND or eof - this will end the list 
         res = []
 
-        one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
+        one_attr = SymbolAttr("", attr.symbol_name, is_seq=False, has_values=True, group = attr.group)
         while len(mq) > 0:
             if (cur := mq.popleft()) == NEND: 
                 break 
@@ -268,7 +278,7 @@ class GrammarCollector():
         # we start reading mq till moment when we bump into umatched NEND or eof - this will end the list 
         res = []
 
-        one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
+        one_attr = SymbolAttr("", attr.symbol_name, is_seq=False, has_values=True, group = attr.group)
         n = np.random.binomial(5, 0.2) #TODO: note that these params should correspond to statistics collected from training or different for each node type
         for _ in range(n):
             symbol, attrs = self._generate_symbol_arg(one_attr, names, constructor = constructor)
@@ -323,10 +333,11 @@ class GrammarCollector():
 # v.collect_metadata(t)
 # print(v.build_message(t, []))
 
-# v = GrammarCollector()
-# for t in tasts:
-#     v.collect_metadata(t)    
+v = GrammarCollector()
+for t in tasts:
+    v.collect_metadata(t)    
 
+# v.symbols['[FunctionDef]']
     # ]       ]", "
     # ([^\["])\[         $1", "[
 # x = ["[FunctionDef]", "__init__", "[NEND]", "[arguments]", "[LST]", "[arg]", "self", "[NEND]", "[NEND]", "[LST]", "[Expr]", "[Call]", "[Attribute]", "[Call]", "[Name]", "super", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "__init__", "[NEND]", "[Load]", "[LST]", "[Constant]", "[str]", "Gnomish Inventor", "[NEND]", "[Constant]", "[int]", "4", "[NEND]", "[Attribute]", "[Name]", "CHARACTER_CLASS", "[NEND]", "[Load]", "ALL", "[NEND]", "[Load]", "[Attribute]", "[Name]", "CARD_RARITY", "[NEND]", "[Load]", "COMMON", "[NEND]", "[Load]", "[NEND]", "[LST]", "[keyword]", "battlecry", "[NEND]", "[Call]", "[Name]", "Battlecry", "[NEND]", "[Load]", "[LST]", "[Call]", "[Name]", "Draw", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "[Call]", "[Name]", "PlayerSelector", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "[NEND]", "[LST]", "[NEND]", "[NEND]"]

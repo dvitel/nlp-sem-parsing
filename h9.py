@@ -130,11 +130,13 @@ symbol_to_token_map = {v[0]: v[1] for k, v in symbols_map.items()}
 token_to_symbol_map = {v[1]: v[0] for k, v in symbols_map.items()}
 symbol_to_tid_map = {v[0]: k for k, v in symbols_map.items()}
 tid_to_symbol_map = {k:v[0] for k, v in symbols_map.items()}
+literal_start_symbol = ' ||'
+literal_start_id = tokenizer(literal_start_symbol)['input_ids'][0]
 
 def preprocess1(e):
     target_message = grammar_collector.build_message(e["target"], [])
     return {"source":e["source"], 
-            "target":"".join([symbol_to_token_map.get(w, ' ||' + w.strip()) for w in target_message]) }
+            "target":"".join([symbol_to_token_map.get(w, literal_start_symbol + w.strip()) for w in target_message]) }
 
 ds01_dict = {k:Dataset.from_list([preprocess1(el) for el in one_ds]) for k, one_ds in ds_dict.items()}
 ds01 = DatasetDict(ds01_dict)
@@ -184,8 +186,10 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.transformer.resize_token_embeddings(len(tokenizer))
         input_size = len(tokenizer) #size of vocab
         #NOTE: output size == number of labels in the group
-        self.ffns = {group:{'ffn': FFN(input_size, len(constructors) + 1), 'labels': [*constructors, NEND]}
-                        for group, constructors in grammar_collector.groups.items()}
+        ffn_groups = {(s_n, a.name):a.possible_symbols  for s_n, s in grammar_collector.symbols.items() 
+                                    for a in s.attrs if len(a.possible_symbols) > (0 if a.is_seq else 1)}
+        self.ffns = {f'{symbol_name[1:-1]}_{attr_name}':{'ffn': FFN(input_size, len(constructors) + 1), 'labels': [*constructors, NEND]}
+                        for (symbol_name, attr_name), constructors in ffn_groups.items()}
 
         if len(grammar_collector.non_ast_types) > 0: 
             #NOTE: interesting subject of research is typing systems in the NN 
@@ -200,6 +204,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # label_count = len(ffn_labels['labels'])
             # if self.max_label_num < label_count:
             #     self.max_label_num = label_count
+        self.arg_coef = 0.95 #each next element of list will have less chance to be generated (for varargs)
 
     def _decode_constant_arg(self, ffn_logits, sample_logits, parent: Symbol, token_id):
         # now we need to detect a chunk of labels that NN dedicated to this constant. 
@@ -223,6 +228,12 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             token_id += 1
 
+        if token_id >= sample_logits.size(0):
+            return sample_logits.size(0)
+
+        ffn_logits.append(torch.abs(sample_logits[token_id][literal_start_id:literal_start_id+1]))
+        
+        token_id += 1
 
         while token_id < sample_logits.size(0):
 
@@ -243,7 +254,7 @@ class PythonGrammarGPT2(torch.nn.Module):
     def _decode_list_arg(self, ffn_logits, sample_logits, attr: SymbolAttr, token_id):
         if token_id >= sample_logits.size(0):
             return sample_logits.size(0)        
-        assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
+        assert attr.is_seq and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot read sequence for {attr}"
 
         ffn_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
         # preds[token_id] = lst_id
@@ -253,13 +264,18 @@ class PythonGrammarGPT2(torch.nn.Module):
         #NOTE: we do not know how long list should be
         # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
+        coef = 1
         while token_id < sample_logits.size(0):
 
-            ffn = self.ffns[attr.group] #pick FFN corresponding to current group
-            logits = ffn['ffn'](sample_logits[token_id])
-            ffn_logits.append(logits) #we use them later to cat and backpropagate
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group
+            logits = ffn['ffn'](sample_logits[token_id])            
 
-            prediction = torch.argmax(logits).item()                
+            logit_scale = torch.ones_like(logits)
+            logit_scale[:-1] = coef
+            logits_scaled = logit_scale * logits
+            ffn_logits.append(logits_scaled) #we use them later to cat and backpropagate
+            prediction = torch.argmax(logits_scaled).item()                
             symbol_name = ffn['labels'][prediction]
             # global_prediction = symbol_to_tid_map[symbol_name]
             # preds[token_id] = global_prediction
@@ -268,6 +284,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             if symbol_name == NEND:                
                 break 
             
+            coef *= self.arg_coef
             symbol = grammar_collector.symbols[symbol_name]            
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -284,16 +301,23 @@ class PythonGrammarGPT2(torch.nn.Module):
     def _decode_symbol_arg(self, ffn_logits, sample_logits, attr: SymbolAttr, token_id):
         if token_id >= sample_logits.size(0): 
             return sample_logits.size(0) # we already set all logits ilter
-        assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
+        assert (not attr.is_seq) and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot generate symbol for attrs {attr}"
         assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
 
-        ffn = self.ffns[attr.group] #pick FFN corresponding to current group
-        logits = ffn['ffn'](sample_logits[token_id])
-        logits_no_nend = logits[:-1]
-        ffn_logits.append(logits_no_nend) #we use them later to cat and backpropagate
+        if len(attr.possible_symbols) == 1: #one possible case 
+            symbol_name = list(attr.possible_symbols)[0]
+            symbol_id = symbol_to_tid_map[symbol_name]
+            ffn_logits.append(torch.abs(sample_logits[token_id][symbol_id:symbol_id+1]))
+        else: 
 
-        prediction = torch.argmax(logits_no_nend).item() #exclude last NEND                    
-        symbol_name = ffn['labels'][prediction] #tid_to_symbol_map[prediction]
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group
+            logits = ffn['ffn'](sample_logits[token_id])
+            logits_no_nend = logits[:-1]
+            ffn_logits.append(logits_no_nend) #we use them later to cat and backpropagate
+
+            prediction = torch.argmax(logits_no_nend).item() #exclude last NEND                    
+            symbol_name = ffn['labels'][prediction] #tid_to_symbol_map[prediction]
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
@@ -333,6 +357,12 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             token_id += 1
 
+        if token_id >= labels.size(0) or labels[token_id].item() == -100: #ignore suffix
+            return labels.size(0)
+
+        local_labels[token_id] = 0 #for literal_start symbol
+
+        token_id += 1
 
         while token_id < labels.size(0) and labels[token_id].item() != -100:
 
@@ -355,7 +385,7 @@ class PythonGrammarGPT2(torch.nn.Module):
     def _label_list_arg(self, local_labels, labels, attr: SymbolAttr, token_id):
         if token_id >= labels.size(0) or labels[token_id].item() == -100: #ignore suffix
             return labels.size(0)        
-        assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
+        assert attr.is_seq and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot read sequence for {attr}"
         assert labels[token_id].item() == lst_id, f"Should be start of list, but {labels[token_id].item()} at {token_id}. All labels: {labels}"
 
         # ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
@@ -373,7 +403,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
         while token_id < labels.size(0) and labels[token_id].item() != -100:
 
-            ffn = self.ffns[attr.group] #pick FFN corresponding to current group
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group
             symbol_name = tid_to_symbol_map[labels[token_id].item()]
             assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}"            
             local_label_id = ffn['labels_map'][symbol_name]
@@ -399,14 +430,19 @@ class PythonGrammarGPT2(torch.nn.Module):
     def _label_symbol_arg(self, local_labels, labels, attr: SymbolAttr, token_id):
         if token_id >= labels.size(0) or labels[token_id].item() == -100: #ignore suffix
             return labels.size(0) # we already set all logits ilter
-        assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
+        assert (not attr.is_seq) and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot generate symbol for attrs {attr}"
         assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
 
-        ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
-        symbol_name = tid_to_symbol_map[labels[token_id].item()]
-        assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}"
-        local_label_id = ffn['labels_map'][symbol_name]
-        local_labels[token_id] = local_label_id
+        if len(attr.possible_symbols) == 1: #one possible case 
+            symbol_name = list(attr.possible_symbols)[0]
+            local_labels[token_id] = 0
+        else: 
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group        
+            symbol_name = tid_to_symbol_map[labels[token_id].item()]
+            assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}"
+            local_label_id = ffn['labels_map'][symbol_name]
+            local_labels[token_id] = local_label_id
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
@@ -435,6 +471,11 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             token_id += 1
 
+        if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
+            return labels.shape[0]
+
+        global_labels[token_id] = literal_start_id #at start we have only 1 label with local id == 0
+        token_id += 1
 
         while token_id < labels.shape[0] and labels[token_id] != -100:
 
@@ -469,7 +510,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
         while token_id < labels.shape[0] and labels[token_id] != -100:
 
-            ffn = self.ffns[attr.group] #pick FFN corresponding to current group
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group
             # symbol_name = tid_to_symbol_map[labels[token_id]]
             assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"            
             symbol_name = ffn['labels'][labels[token_id]]
@@ -495,15 +538,20 @@ class PythonGrammarGPT2(torch.nn.Module):
     def _symbol_symbol_arg(self, global_labels, labels, attr: SymbolAttr, token_id):
         if token_id >= labels.shape[0] or labels[token_id] == -100: #ignore suffix
             return labels.shape[0] # we already set all logits ilter
-        assert (not attr.is_seq) and attr.group is not None, f"Cannot generate symbol for attrs {attr}"
+        assert (not attr.is_seq) and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot generate symbol for attrs {attr}"
         assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
 
-        ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
-        # symbol_name = tid_to_symbol_map[labels[token_id]]
-        assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"
-        symbol_name = ffn['labels'][labels[token_id]]
+        if len(attr.possible_symbols) == 1: #one possible case 
+            symbol_name = list(attr.possible_symbols)[0]
+        else: 
+
+            group_id = f'{attr.symbol_name[1:-1]}:{attr.name}'
+            ffn = self.ffns[group_id] #pick FFN corresponding to current group        
+            # symbol_name = tid_to_symbol_map[labels[token_id]]
+            assert labels[token_id] < len(ffn['labels']), f"Cannot find label {labels[token_id]} in symbols of {attr.group}: {ffn['labels']}"
+            symbol_name = ffn['labels'][labels[token_id]]
         global_labels[token_id] = symbol_to_tid_map[symbol_name]
-        # assert global_labels[token_id] < len(tokenizer), f"Decoded label is outside range: "
+            # assert global_labels[token_id] < len(tokenizer), f"Decoded label is outside range: "
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
