@@ -388,7 +388,6 @@ class PythonGrammarGPT2(torch.nn.Module):
         assert attr.is_seq and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot read sequence for {attr}"
         assert labels[token_id].item() == lst_id, f"Should be start of list, but {labels[token_id].item()} at {token_id}. All labels: {labels}"
 
-        print(f'BEFORE LST Current token id {token_id} and value {labels[token_id].item()} == {lst_id}', file = sys.stderr)
         # ffn = self.ffns[attr.group] #pick FFN corresponding to current group        
         # symbol_name = tid_to_symbol_map[lst_id]
         # local_label_id = ffn['labels_map'][LST] #TODO: better to add assert probably
@@ -406,16 +405,18 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
-            symbol_name = tid_to_symbol_map[labels[token_id].item()]
-            prev_symbol_name = tid_to_symbol_map[labels[token_id - 1].item()]
-            assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name}. Parent {attr.symbol_name}:{attr.name}. PREV {prev_symbol_name}, {labels[token_id - 1].item() == lst_id} in symbols of {attr.group}: {ffn['labels_map']}\n{[tid_to_symbol_map.get(el.item(), '*' if el.item() == -100 else tokenizer.decode(el.item())) for el in labels[:token_id+1]]}"
+            symbol_name = tid_to_symbol_map[labels[token_id].item()]            
+
+            assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name}. Parent {attr.symbol_name}:{attr.name}. In symbols of {attr.group}: {ffn['labels_map']}\n{[tid_to_symbol_map.get(el.item(), '*' if el.item() == -100 else tokenizer.decode(el.item())) for el in labels[:token_id+1]]}"
             local_label_id = ffn['labels_map'][symbol_name]
             local_labels[token_id] = local_label_id
 
             token_id += 1 
-            if symbol_name == NEND:                
+            if symbol_name == NEND:    
+                print(f'BREAK Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
                 break 
             
+            print(f'Continue Symbol {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
             symbol = grammar_collector.symbols[symbol_name]            
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema

@@ -328,14 +328,17 @@ class GrammarCollector():
 # messages[147]
 # v.symbols
 
-# t = ast.parse("None")
-# v = GrammarCollector()
-# v.collect_metadata(t)
+# x = 'class Hex(SpellCard):§    def __init__(self):§        super().__init__("Hex", 3, CHARACTER_CLASS.SHAMAN, CARD_RARITY.FREE, target_func=hearthbreaker.targeting.find_minion_spell_target)§§    def use(self, player, game):§        super().use(player, game)§§        frog = hearthbreaker.cards.minions.neutral.Frog()§        minion = frog.create_minion(None)§        minion.card = frog§        self.target.replace(minion)§'
+# x = x.replace("§", "\n")
+# t = ast.parse(x)
+# # v = GrammarCollector()
+# # v.collect_metadata(t)
 # print(v.build_message(t, []))
 
 # v = GrammarCollector()
 # for t in tasts:
 #     v.collect_metadata(t)    
+
 
 # v.symbols['[FunctionDef]']
     # ]       ]", "
