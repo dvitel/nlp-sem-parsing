@@ -82,7 +82,7 @@ checkpoint = "distilgpt2"
 max_length = 912
 batch_size = 4
 num_epochs = 200
-eval_steps = 100
+eval_steps = 1600
 learning_rate = 2e-5
 seed = 17
 
@@ -209,7 +209,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if token_id >= sample_logits.size(0):
             return sample_logits.size(0)
 
-        grammar_logits.append(torch.abs(sample_logits[token_id][literal_start_id:literal_start_id+1]))
+        grammar_logits.append(sample_logits[token_id][literal_start_id:literal_start_id+1])
         
         token_id += 1
 
@@ -234,7 +234,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             return sample_logits.size(0)        
         assert attr.is_seq and attr.group is not None and len(attr.possible_symbols) > 0, f"Cannot read sequence for {attr}"
 
-        grammar_logits.append(torch.abs(sample_logits[token_id][lst_id:lst_id+1]))
+        grammar_logits.append(sample_logits[token_id][lst_id:lst_id+1])
         # preds[token_id] = lst_id
         
         token_id += 1
@@ -286,7 +286,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         if len(attr.possible_symbols) == 1: #one possible case 
             symbol_name = list(attr.possible_symbols)[0]
             symbol_id = symbol_to_tid_map[symbol_name]
-            grammar_logits.append(torch.abs(sample_logits[token_id][symbol_id:symbol_id+1]))
+            grammar_logits.append(sample_logits[token_id][symbol_id:symbol_id+1])
         else: 
 
             group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
@@ -465,7 +465,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         token_id += 1
 
-        print(f'[lst] START in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+        # print(f'[lst] START in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
 
         #NOTE: we do not know how long list should be
         # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
@@ -482,10 +482,10 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             token_id += 1 
             if symbol_name == NEND:                
-                print(f'[lst] {(token_id-1)} BREAK {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+                # print(f'[lst] {(token_id-1)} BREAK {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
                 break 
             
-            print(f'[lst] {(token_id - 1)} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+            # print(f'[lst] {(token_id - 1)} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
             symbol = grammar_collector.symbols[symbol_name]            
             for a in symbol.attrs:
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
@@ -517,7 +517,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         global_labels[token_id] = symbol_to_tid_map[symbol_name]
             # assert global_labels[token_id] < len(tokenizer), f"Decoded label is outside range: "
 
-        print(f'[sym] {token_id} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
+        # print(f'[sym] {token_id} {symbol_name} in {attr.symbol_name}:{attr.name}', file = sys.stderr)            
 
         symbol = grammar_collector.symbols[symbol_name]
         token_id += 1
@@ -540,6 +540,7 @@ class PythonGrammarGPT2(torch.nn.Module):
     ):
         gpt2_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask)        
         all_logits_list = []
+        global_min_logit_value = 0.0
         for sample_id in range(gpt2_result.logits.size(0)):
             token_id = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()[0].item() #position of separator between <s>_<t>
             grammar_logits = []
@@ -547,18 +548,25 @@ class PythonGrammarGPT2(torch.nn.Module):
                 grammar_logits.append(torch.tensor([], device = gpt2_result.logits.device))
             self._decode_symbol_arg(grammar_logits, gpt2_result.logits[sample_id], start_symbol, token_id) #updates logits corresponding to grammar
             padded_logits = []
+            min_logit_value = 0.0
+            for logits in grammar_logits:
+                if len(logits) == 0: 
+                    continue
+                cur_min_value = torch.min(logits).item()
+                min_logit_value = cur_min_value if min_logit_value > cur_min_value else min_logit_value
             for logits in grammar_logits:
                 num_to_pad = self.max_label_num - len(logits)
                 if num_to_pad > 0:
-                    logits = torch.nn.functional.pad(logits, (0, num_to_pad))
+                    logits = torch.nn.functional.pad(logits, (0, num_to_pad), value = min_logit_value)
                 padded_logits.append(logits)                
             sample_logits = torch.stack(padded_logits)
             positions_to_pad = max_length - sample_logits.size(0)
             sample_logits_padded = sample_logits
             if positions_to_pad > 0:
-                sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad))
+                sample_logits_padded = torch.nn.functional.pad(sample_logits, (0, 0, 0, positions_to_pad), value = min_logit_value)
             all_logits_list.append(sample_logits_padded)
-        all_logits = pad_sequence(all_logits_list, batch_first=True)
+            global_min_logit_value = min_logit_value if global_min_logit_value > min_logit_value else global_min_logit_value
+        all_logits = pad_sequence(all_logits_list, batch_first=True, padding_value = global_min_logit_value)
         # for x, y in zip(all_logits[0], gpt2_result.logits[0]):
         #     print("x:", x)
         #     print("y:", y)
