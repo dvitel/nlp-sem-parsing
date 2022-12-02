@@ -406,7 +406,8 @@ class PythonGrammarGPT2(torch.nn.Module):
             group_id = f'{attr.symbol_name[1:-1]}_{attr.name}'
             ffn = self.ffns[group_id] #pick FFN corresponding to current group
             symbol_name = tid_to_symbol_map[labels[token_id].item()]
-            assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} in symbols of {attr.group}: {ffn['labels_map']}\n{[tid_to_symbol_map.get(el.item(), '*') for el in labels[:token_id+1]]}"
+            prev_symbol_name = tid_to_symbol_map[labels[token_id - 1].item()]
+            assert symbol_name in ffn['labels_map'], f"Cannot find label symbol {symbol_name} (PREV {prev_symbol_name}) in symbols of {attr.group}: {ffn['labels_map']}\n{[tid_to_symbol_map.get(el.item(), '*') for el in labels[:token_id+1]]}"
             local_label_id = ffn['labels_map'][symbol_name]
             local_labels[token_id] = local_label_id
 
