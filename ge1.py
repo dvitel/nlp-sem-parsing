@@ -357,15 +357,17 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         # print("Enforcing grammar...")
 
-        min_logit = torch.min(transformer_result.logits).item()
-        positive_logits = transformer_result.logits - min_logit + 0.1 #shift level
-
+        min_logit = torch.min(transformer_result.logits)
+        print("Min logit ", min_logit)
+        positive_logits = transformer_result.logits - min_logit.item() + 0.1 #shift level
+        print("P logits ", positive_logits.size())
         scores = torch.nn.functional.softmax(positive_logits, dim=-1)
 
         depths = torch.ones((positive_logits.size(0), positive_logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100)
         mistakes = torch.ones_like(useful_labels)
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
+        print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
