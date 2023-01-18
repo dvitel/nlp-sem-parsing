@@ -166,7 +166,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             prediction = torch.argmax(symbol_tensor).item()
-            label = labels[token_id] 
+            label = labels[token_id].item()
             if label != -100 and self.training: #we only allow gold labels during training
                 symbol_name = tid_to_symbol_map[label]
             elif prediction in tid_to_symbol_map:
