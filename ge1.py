@@ -164,15 +164,24 @@ class PythonGrammarGPT2(torch.nn.Module):
 
     def pick_symbol(self, symbol_tensor, labels, token_id):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
-        prediction = torch.argmax(symbol_tensor).item()
-        label = labels[token_id] 
-        if label != -100 and self.training: #we only allow gold labels during training
-            symbol_name = tid_to_symbol_map[label]
-        elif prediction in tid_to_symbol_map:
-            symbol_name = tid_to_symbol_map[prediction]
-        else: #cannot teacher-force, retry this routine, symbol_name is unknown
-            symbol_name = None 
-        return symbol_name
+        try:
+            prediction = torch.argmax(symbol_tensor).item()
+            label = labels[token_id] 
+            if label != -100 and self.training: #we only allow gold labels during training
+                symbol_name = tid_to_symbol_map[label]
+            elif prediction in tid_to_symbol_map:
+                symbol_name = tid_to_symbol_map[prediction]
+            else: #cannot teacher-force, retry this routine, symbol_name is unknown
+                symbol_name = None 
+            return symbol_name
+        except KeyError as e: 
+            print("Error, cannot find key", e, file = sys.stderr)
+            print("Token id", token_id, file = sys.stderr)
+            print("Labels at pos", labels[token_id:], file = sys.stderr)
+            print("Pred at pos", prediction, file = sys.stderr)
+            print("Keys: ", tid_to_symbol_map.keys(), file = sys.stderr)
+            print("Tokenizer tokens: ", tokenizer.decode(labels[token_id:]), file = sys.stderr)
+            raise 
 
 
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
