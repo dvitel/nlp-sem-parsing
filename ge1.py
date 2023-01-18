@@ -180,7 +180,13 @@ class PythonGrammarGPT2(torch.nn.Module):
             print("Labels at pos", labels[token_id:], file = sys.stderr)
             print("Pred at pos", prediction, file = sys.stderr)
             print("Keys: ", tid_to_symbol_map.keys(), file = sys.stderr)
-            print("Tokenizer tokens: ", tokenizer.decode(labels[token_id:]), file = sys.stderr)
+            left_labels = labels[token_id:]
+            left_nonemoty_labels = left_labels[left_labels != -100]
+            errored_token = tokenizer.decode(labels[token_id])
+            expected_symbol = token_to_symbol_map.get(errored_token, None)
+            print("Tokenizer tokens: ", tokenizer.decode(left_nonemoty_labels), file = sys.stderr)
+            print("Error token ", errored_token, " Expected symbol: ", expected_symbol, 
+                    "Expected tid: ", symbol_to_tid_map.get(expected_symbol, None), file = sys.stderr)
             raise 
 
 
