@@ -87,11 +87,13 @@ symbol_to_token_map = {v[0]: v[1] for k, v in symbols_map.items()}
 token_to_symbol_map = {v[1]: v[0] for k, v in symbols_map.items()}
 symbol_to_tid_map = {v[0]: k for k, v in symbols_map.items()}
 tid_to_symbol_map = {k:v[0] for k, v in symbols_map.items()}
+literal_start_symbol = ' ||'
+literal_start_id = tokenizer(literal_start_symbol)['input_ids'][0]
 
 def preprocess1(e):
     target_message = grammar_collector.build_message(e["target"], [])
     return {"source":e["source"], 
-            "target":"".join([symbol_to_token_map.get(w, ' ||' + w.strip()) for w in target_message]) }
+            "target":"".join([symbol_to_token_map.get(w, literal_start_symbol + w.strip()) for w in target_message]) }
 
 ds01_dict = {k:Dataset.from_list([preprocess1(el) for el in one_ds]) for k, one_ds in ds_dict.items()}
 ds01 = DatasetDict(ds01_dict)
@@ -218,6 +220,25 @@ class PythonGrammarGPT2(torch.nn.Module):
                 print(f"{padding}[{token_id}] --> {symbol_name}")                  
             
             token_id += 1
+        
+        #first symbol have to be literal start
+        logits_filter = grammar_mask[token_id, :]
+        logits_filter[:] = grammar_enforcement_down_level
+        logits_filter[literal_start_id] = grammar_enforcement_up_level
+        depths[token_id] = depth
+
+        # if mistake_made: #ignore new errors because mistake was alreeady made at root node
+        # NOTE: here we cannot make a mistake on LST node - ignore it anyway
+        # if mistake_made:
+        #     labels[token_id] = -100
+        #     mistakes[token_id] = 0     
+
+        if self.enable_logging:
+            padding = "\t" * depth
+            print(f"{padding}[{token_id}] -->  ||")
+
+        token_id += 1
+
 
         while token_id < sample_tensor.size(0):
 
