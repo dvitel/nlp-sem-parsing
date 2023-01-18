@@ -181,7 +181,9 @@ def compute_metrics(eval_pred):
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
     miss_pos_metric = compute_avg_miss_pos(prediction_labels, shift_labels)
     correct_percent_metric = compute_correct_percent(prediction_labels, shift_labels, matches)
-    return {"exact_match": accuracy_metric["exact_match"], **miss_pos_metric, **correct_percent_metric, "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+    depth_metric = compute_first_error_depth()
+    return {"exact_match": accuracy_metric["exact_match"], **miss_pos_metric, **correct_percent_metric, **depth_metric, 
+                "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 nend_id = symbol_to_tid_map[NEND]
 lst_id = symbol_to_tid_map[LST]
