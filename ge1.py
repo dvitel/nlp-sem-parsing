@@ -387,7 +387,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
             non_empty_labels = (labels[sample_id] != -100).nonzero()
-            token_id = non_empty_labels[0].item() - 1 if non_empty_labels.size() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
+            token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
             # print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
