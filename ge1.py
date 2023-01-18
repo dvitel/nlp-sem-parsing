@@ -140,7 +140,13 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
                 print("Message", message, file = sys.stderr)
                 errs_to_print -= 1
     return {"correct_percent": correct_count / all_count }
-            
+
+first_error_depths = []
+def compute_first_error_depth():
+    """ Note that this metric is only available after eval and will be reset on call """
+    avg_depth = None if len(first_error_depths) == 0 else np.mean(first_error_depths)
+    first_error_depths.clear()
+    return {"error_depth":avg_depth}
 
 
 bleu = evaluate.load("bleu")
@@ -196,9 +202,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.ast_weight = 10.
         # self.length_weight = 2.
         # self.err_weight = 10.
-        #logits batch_size x sentence_length x size of vocab (logits)        
+        #logits batch_size x sentence_length x size of vocab (logits)     
 
-    def pick_symbol(self, symbol_tensor, labels, token_id, allow_non_symbols = False):
+    def pick_symbol(self, symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols = False):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             prediction = torch.argmax(symbol_tensor).item()
@@ -212,7 +218,10 @@ class PythonGrammarGPT2(torch.nn.Module):
                 symbol_name = tid_to_symbol_map[prediction]
             else: #cannot teacher-force, retry this routine, symbol_name is unknown
                 symbol_name = None 
-            return (symbol_name, label if (label != -100) and self.training else prediction)
+            if not mistake_made and prediction != label and label != -100 and not self.training:
+                mistake_made = True 
+                first_error_depths.append(depth)
+            return (symbol_name, label if (label != -100) and self.training else prediction, mistake_made)
         except KeyError as e: 
             print("Error, cannot find key", e, file = sys.stderr)
             print("Token id", token_id, file = sys.stderr)
@@ -242,7 +251,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[:] = grammar_enforcement_down_level
             logits_filter[label_ids] = grammar_enforcement_up_level
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
             depths[token_id] = depth            
             # if mistake_made:
             #     labels[token_id] = -100
@@ -285,7 +294,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             symbol_tensor = sample_tensor[token_id] * logits_filter            
             # print("Masked p", masked_t)
-            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id, allow_non_symbols=True)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols=True)
 
             # if mistake_made:
             #     labels[token_id] = -100       
@@ -348,7 +357,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # mask[label_ids] = 1
             symbol_tensor = sample_tensor[token_id] * logits_filter
             # print("Masked p", masked_t)
-            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
             if symbol_name == NEND: #enforce NEND and break                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -398,7 +407,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
                 
-        symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
+        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
 
         # if mistake_made: #if mistake made before in ast - do not try correct errors after
         #     labels[token_id] = -100 
