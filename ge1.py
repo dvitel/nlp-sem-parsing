@@ -162,6 +162,19 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.err_weight = 10.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
+    def pick_symbol(self, symbol_tensor, labels, token_id):
+        """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
+        prediction = torch.argmax(symbol_tensor).item()
+        label = labels[token_id] 
+        if label != -100 and self.training: #we only allow gold labels during training
+            symbol_name = tid_to_symbol_map[label]
+        elif prediction in tid_to_symbol_map:
+            symbol_name = tid_to_symbol_map[prediction]
+        else: #cannot teacher-force, retry this routine, symbol_name is unknown
+            symbol_name = None 
+        return symbol_name
+
+
     def _decode_constant_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, parent: Symbol, token_id, depth, mistake_made, mistakes):
         # now we need to detect a chunk of labels that NN dedicated to this constant. 
         # we do this by taking argmax of NEND logits for next k tokens, k is hyper parameter, weighted by distance from start 
@@ -169,60 +182,57 @@ class PythonGrammarGPT2(torch.nn.Module):
         if token_id >= sample_tensor.size(0):
             return sample_tensor.size(0)
         if parent.type == ast.Constant:
-            #first token in a chunk should be type 
+            #first token in a chunk should be a type of literal
             label_ids = [ symbol_to_tid_map[label] for label in grammar_collector.non_ast_types.keys() ]
             logits_filter = grammar_mask[token_id, :]
             logits_filter[:] = grammar_enforcement_down_level
             logits_filter[label_ids] = grammar_enforcement_up_level
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            prediction = torch.argmax(symbol_tensor).item()
+            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
             depths[token_id] = depth            
             # if mistake_made:
             #     labels[token_id] = -100
             #     mistakes[token_id] = 0
             # elif prediction != labels[token_id]:
             #     mistake_made = True 
-            #     mistakes[token_id] = self.err_weight
-
-            next_token_id = token_id + 1
+            #     mistakes[token_id] = self.err_weight            
 
             #NEXT code is for debugging
             if self.enable_logging:
-                symbol_name = tid_to_symbol_map[prediction]
                 padding = "\t" * depth
                 print(f"{padding}[{token_id}] --> {symbol_name}")                  
-        else:
-            next_token_id = token_id
+            
+            token_id += 1
 
-        while next_token_id < sample_tensor.size(0):
+        while token_id < sample_tensor.size(0):
 
-            logits_filter = grammar_mask[next_token_id, :]
+            logits_filter = grammar_mask[token_id, :]
             logits_filter[:] = grammar_enforcement_up_level
-            depths[next_token_id] = depth
+            depths[token_id] = depth
 
-            symbol_tensor = sample_tensor[next_token_id] * logits_filter            
+            symbol_tensor = sample_tensor[token_id] * logits_filter            
             # print("Masked p", masked_t)
-            prediction = torch.argmax(symbol_tensor).item()
+            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
 
             # if mistake_made:
-            #     labels[next_token_id] = -100       
-            #     mistakes[next_token_id] = 0     
-            # elif prediction != labels[next_token_id]:
+            #     labels[token_id] = -100       
+            #     mistakes[token_id] = 0     
+            # elif prediction != labels[token_id]:
             #     mistake_made = True 
-            #     mistakes[next_token_id] = self.err_weight    
+            #     mistakes[token_id] = self.err_weight    
 
             # if prediction not in tid_to_symbol_map:
             #     print(f"Cannot find {prediction} {tokenizer.decode(prediction)} in tid_to_symbol_map", file = sys.stderr)
             # symbol = tid_to_symbol_map[prediction]            
-            if prediction == nend_id:
+            if symbol_name == NEND:
                 if self.enable_logging:
                     padding = "\t" * depth
-                    print(f"{padding}[{next_token_id}] --> [NEND]")    
-                next_token_id += 1 
+                    print(f"{padding}[{token_id}] --> [NEND]")    
+                token_id += 1 
                 break             
-            next_token_id += 1 
+            token_id += 1 
 
-        return next_token_id
+        return token_id
 
     def _decode_list_arg(self, grammar_mask, sample_tensor, depths, labels, attr: SymbolAttr, token_id, depth, mistake_made, mistakes):
         if token_id >= sample_tensor.size(0):
@@ -245,57 +255,58 @@ class PythonGrammarGPT2(torch.nn.Module):
             padding = "\t" * depth
             print(f"{padding}[{token_id}] --> [LST]")
 
-        next_token_id = token_id + 1
+        token_id += 1
         # one_attr = SymbolAttr("", is_seq=False, has_values=True, group = attr.group)
         #NOTE: we do not know how long list should be
-        # at one moment we can check current logits for next_token_id and if it is probable to have NEND, we can terminate loop
+        # at one moment we can check current logits for token_id and if it is probable to have NEND, we can terminate loop
         # we need to compare logits for nend (decision to terminate) with logits of any other symbol probability. from group attr.group
-        while next_token_id < sample_tensor.size(0):   
+        while token_id < sample_tensor.size(0):   
 
-            logits_filter = grammar_mask[next_token_id, :]
+            logits_filter = grammar_mask[token_id, :]
             logits_filter[:] = grammar_enforcement_down_level
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
             logits_filter[label_ids] = grammar_enforcement_up_level
-            depths[next_token_id] = depth
+            depths[token_id] = depth
 
             
-            # mask = torch.zeros_like(sample_tensor[next_token_id, :])
+            # mask = torch.zeros_like(sample_tensor[token_id, :])
             # mask[label_ids] = 1
-            symbol_tensor = sample_tensor[next_token_id] * logits_filter
+            symbol_tensor = sample_tensor[token_id] * logits_filter
             # print("Masked p", masked_t)
-            prediction = torch.argmax(symbol_tensor).item()
-            symbol_name = tid_to_symbol_map[prediction]            
-            if prediction == nend_id:
-                #enforce NEND and break 
-                
+            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+            if symbol_name == NEND: #enforce NEND and break                 
                 if self.enable_logging:
                     padding = "\t" * depth
-                    print(f"{padding}[{next_token_id}] --> [NEND]")                
-                next_token_id += 1 
+                    print(f"{padding}[{token_id}] --> [NEND]")                
+                token_id += 1 
                 break 
             
-            # next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, next_token_id, depth)
-            symbol = grammar_collector.symbols[symbol_name]
-            # if mistake_made: #if mistake made before in ast - do not try correct errors after
-            #     labels[next_token_id] = -100 
-            #     mistakes[next_token_id] = 0
-            # elif prediction != labels[next_token_id]: #we made first mistake at ast node 
-            #     mistake_made = True 
-            #     mistakes[next_token_id] = self.err_weight
-            next_token_id += 1 
-            for a in symbol.attrs:
-                if not a.has_values: #note that we ignore this assuming that input follows the trained schema
-                    continue #tensor does not have logits for this attr
-                elif (not a.is_seq) and a.group is None:
-                    next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, next_token_id, depth + 1, mistake_made, mistakes)
-                elif not a.is_seq:
-                    next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made, mistakes) 
-                else: #list 
-                    next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made, mistakes)
 
-        return next_token_id
+            # token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, one_attr, token_id, depth)
+            if symbol_name is None: #we just skip this logit and continue 
+                token_id += 1 
+            else:
+                symbol = grammar_collector.symbols[symbol_name]
+                # if mistake_made: #if mistake made before in ast - do not try correct errors after
+                #     labels[token_id] = -100 
+                #     mistakes[token_id] = 0
+                # elif prediction != labels[token_id]: #we made first mistake at ast node 
+                #     mistake_made = True 
+                #     mistakes[token_id] = self.err_weight
+                token_id += 1 
+                for a in symbol.attrs:
+                    if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                        continue #tensor does not have logits for this attr
+                    elif (not a.is_seq) and a.group is None:
+                        token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, token_id, depth + 1, mistake_made, mistakes)
+                    elif not a.is_seq:
+                        token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, token_id, depth + 1, mistake_made, mistakes) 
+                    else: #list 
+                        token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, token_id, depth + 1, mistake_made, mistakes)
+
+        return token_id
 
     def _decode_symbol_arg(self, grammar_mask, sample_tensor, depths, 
             labels, attr: SymbolAttr, token_id, depth, mistake_made, mistakes):
@@ -313,7 +324,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         symbol_tensor = sample_tensor[token_id] * logits_filter
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
-        prediction = torch.argmax(symbol_tensor).item()
+                
+        symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+
         # if mistake_made: #if mistake made before in ast - do not try correct errors after
         #     labels[token_id] = -100 
         #     mistakes[token_id] = 0
@@ -321,24 +334,25 @@ class PythonGrammarGPT2(torch.nn.Module):
         #     mistake_made = True
         #     mistakes[token_id] = self.err_weight
             
-        symbol_name = tid_to_symbol_map[prediction]
+        if symbol_name:
+            if self.enable_logging:
+                padding = "\t" * depth
+                print(f"{padding}[{token_id}] --> {symbol_name}")
 
-        if self.enable_logging:
-            padding = "\t" * depth
-            print(f"{padding}[{token_id}] --> {symbol_name}")
-
-        symbol = grammar_collector.symbols[symbol_name]
-        next_token_id = token_id + 1
-        for a in symbol.attrs:
-            if not a.has_values: #note that we ignore this assuming that input follows the trained schema
-                continue #tensor does not have logits for this attr
-            elif (not a.is_seq) and a.group is None:
-                next_token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, next_token_id, depth + 1, mistake_made, mistakes)
-            elif not a.is_seq:
-                next_token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made, mistakes) 
-            else: #list 
-                next_token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, next_token_id, depth + 1, mistake_made, mistakes)
-        return next_token_id
+            symbol = grammar_collector.symbols[symbol_name]
+            token_id += 1
+            for a in symbol.attrs:
+                if not a.has_values: #note that we ignore this assuming that input follows the trained schema
+                    continue #tensor does not have logits for this attr
+                elif (not a.is_seq) and a.group is None:
+                    token_id = self._decode_constant_arg(grammar_mask, sample_tensor, depths, labels, a, symbol, token_id, depth + 1, mistake_made, mistakes)
+                elif not a.is_seq:
+                    token_id = self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, a, token_id, depth + 1, mistake_made, mistakes) 
+                else: #list 
+                    token_id = self._decode_list_arg(grammar_mask, sample_tensor, depths, labels, a, token_id, depth + 1, mistake_made, mistakes)
+            return token_id
+        else:
+            return self._decode_symbol_arg(grammar_mask, sample_tensor, depths, labels, attr, token_id + 1, depth, mistake_made, mistakes)
 
     def forward(
         self, 
@@ -358,21 +372,22 @@ class PythonGrammarGPT2(torch.nn.Module):
         # print("Enforcing grammar...")
 
         min_logit = torch.min(transformer_result.logits)
-        print("Min logit ", min_logit)
+        # print("Min logit ", min_logit)
         positive_logits = transformer_result.logits - min_logit.item() + 0.1 #shift level
-        print("P logits ", positive_logits.size())
+        # print("P logits ", positive_logits.size())
         scores = torch.nn.functional.softmax(positive_logits, dim=-1)
 
         depths = torch.ones((positive_logits.size(0), positive_logits.size(1)), device = "cpu")
-        useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100)
+        useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
         mistakes = torch.ones_like(useful_labels)
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
-        print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
+        # print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0                
-            token_id = (labels[sample_id] != -100).nonzero()[0].item() - 1
+            non_empty_labels = (labels[sample_id] != -100).nonzero()
+            token_id = non_empty_labels[0].item() - 1 if non_empty_labels.size() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
             # print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
@@ -472,13 +487,13 @@ args = TrainingArguments(
 
 model = PythonGrammarGPT2()
 trainer = Trainer(
-    model=model,
-    tokenizer=tokenizer,
-    args=args,
+    model = model,
+    tokenizer = tokenizer,
+    args = args,
     compute_metrics = compute_metrics,
-    data_collator=custom_data_collator,
-    train_dataset=ds1["train"],
-    eval_dataset=ds1["validation"],
+    data_collator = custom_data_collator,
+    train_dataset = ds1["train"],
+    eval_dataset = ds1["validation"],
 )
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
