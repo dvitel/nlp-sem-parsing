@@ -164,18 +164,21 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.err_weight = 10.
         #logits batch_size x sentence_length x size of vocab (logits)        
 
-    def pick_symbol(self, symbol_tensor, labels, token_id):
+    def pick_symbol(self, symbol_tensor, labels, token_id, allow_non_symbols = False):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             prediction = torch.argmax(symbol_tensor).item()
             label = labels[token_id].item()
             if label != -100 and self.training: #we only allow gold labels during training
-                symbol_name = tid_to_symbol_map[label]
+                if allow_non_symbols:
+                    symbol_name = tid_to_symbol_map.get(label, None)
+                else:
+                    symbol_name = tid_to_symbol_map[label]
             elif prediction in tid_to_symbol_map:
                 symbol_name = tid_to_symbol_map[prediction]
             else: #cannot teacher-force, retry this routine, symbol_name is unknown
                 symbol_name = None 
-            return symbol_name
+            return (symbol_name, label if (label != -100) and self.training else prediction)
         except KeyError as e: 
             print("Error, cannot find key", e, file = sys.stderr)
             print("Token id", token_id, file = sys.stderr)
@@ -205,7 +208,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[:] = grammar_enforcement_down_level
             logits_filter[label_ids] = grammar_enforcement_up_level
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
             depths[token_id] = depth            
             # if mistake_made:
             #     labels[token_id] = -100
@@ -248,7 +251,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             symbol_tensor = sample_tensor[token_id] * logits_filter            
             # print("Masked p", masked_t)
-            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id, allow_non_symbols=True)
 
             # if mistake_made:
             #     labels[token_id] = -100       
@@ -311,7 +314,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # mask[label_ids] = 1
             symbol_tensor = sample_tensor[token_id] * logits_filter
             # print("Masked p", masked_t)
-            symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+            symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
             if symbol_name == NEND: #enforce NEND and break                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -361,7 +364,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
                 
-        symbol_name = self.pick_symbol(symbol_tensor, labels, token_id)
+        symbol_name, _ = self.pick_symbol(symbol_tensor, labels, token_id)
 
         # if mistake_made: #if mistake made before in ast - do not try correct errors after
         #     labels[token_id] = -100 
