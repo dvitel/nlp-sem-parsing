@@ -110,6 +110,35 @@ def preprocess(e):
 
 ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
+def compute_avg_miss_pos(prediction_labels, shift_labels):
+    first_miss_idxs = []
+    for preds, labels in zip(prediction_labels, shift_labels):              
+        label_map = labels >= 0
+        labels_view = labels[label_map]
+        pred_view = preds[label_map]
+        miss_idxs = np.where(labels_view != pred_view)[0]
+        if len(miss_idxs) > 0:
+            first_miss_idxs.append(miss_idxs[0])
+    miss_idxs_in_sentence = np.mean(first_miss_idxs) if len(first_miss_idxs) > 0 else None
+    return {"miss_pos": miss_idxs_in_sentence}
+
+def compute_correct_percent(prediction_labels, shift_labels):
+    correct_count = 0
+    all_count = 0
+    for preds, labels in zip(prediction_labels, shift_labels):              
+        label_map = labels >= 0
+        pred_view = preds[label_map]
+        message = [tokenizer.decode(x) for x in pred_view]
+        all_count += 1
+        try: 
+            p_text = unprocess(message)
+            correct_count += 1
+        except Exception as e:
+            if grammar_enforcement_down_level == 0:
+                print("Error in unprocess", e, file = sys.stderr)
+    return {"correct_percent": correct_count / all_count }
+            
+
 
 bleu = evaluate.load("bleu")
 codebleu = evaluate.load("dvitel/codebleu")
@@ -128,8 +157,6 @@ def compute_metrics(eval_pred):
       pred_view = preds[label_map]
       l_text = tokenizer.decode(labels_view)
       p_text = tokenizer.decode(pred_view)
-    #   p_text = unprocess([tokenizer.decode(x) for x in pred_view])
-    #   l_text = unprocess([tokenizer.decode(x) for x in labels_view])
       predictions.append(p_text)
       references.append(l_text)
       if p_text != l_text and first_not_matched > 0:      
@@ -141,7 +168,9 @@ def compute_metrics(eval_pred):
     bleu_metric = bleu.compute(predictions = predictions, references = references)   
     codebleu_metric = codebleu.compute(predictions = predictions, references = references)  
     chrf_metric = chrF.compute(predictions = predictions, references = references)  
-    return {"exact_match": accuracy_metric["exact_match"], "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
+    miss_pos_metric = compute_avg_miss_pos(prediction_labels, shift_labels)
+    correct_percent_metric = compute_correct_percent(prediction_labels, shift_labels)
+    return {"exact_match": accuracy_metric["exact_match"], **miss_pos_metric, **correct_percent_metric, "bleu": bleu_metric["bleu"], **codebleu_metric, "chrf": chrf_metric['score']}
 
 nend_id = symbol_to_tid_map[NEND]
 lst_id = symbol_to_tid_map[LST]
