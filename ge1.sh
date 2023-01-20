@@ -6,5 +6,6 @@
 #SBATCH -D /data/dvitel/semParse
 #SBATCH -p Quick # run on partition general
 #SBATCH --gpus=1 # 1 GPU
+#SBATCH -w GPU45
 conda activate semParse2
 srun /home/d/dvitel/semp/start.sh '/home/d/dvitel/semp/ge1'

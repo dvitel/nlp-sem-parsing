@@ -202,10 +202,10 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.enable_logging = False
         self.num_debug_eval_samples = 4
-        self.cur_debug_eval_samples = self.num_debug_eval_samples
         self.debug_mistakes = False
         self.num_debug_tokens = 15
         self.cur_debug_tokens = self.num_debug_tokens
+        self.nontraining_sample_id = None
         # self.ast_weight = 10.
         # self.length_weight = 2.
         # self.err_weight = 10.
@@ -234,7 +234,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                     prediction_token = tokenizer.decode(prediction)
                 else:
                     prediction_token = label_token
-                print(f"\t[{token_id}]{label == prediction} l {label} '{label_token}' {symbol_tensor[label]}, p {prediction} '{prediction_token}' {symbol_tensor[prediction]}")
+                print(f"\t[{token_id}] {label == prediction} l {label} '{label_token}' {symbol_tensor[label]}, p {prediction} '{prediction_token}' {symbol_tensor[prediction]} | {self.cur_debug_tokens}")
                 self.cur_debug_tokens -= 1
             return (symbol_name, label if (label != -100) and self.training else prediction, mistake_made)
         except KeyError as e: 
@@ -477,6 +477,10 @@ class PythonGrammarGPT2(torch.nn.Module):
         #we use them for loss penalty later
 
         # print("Enforcing grammar...")
+        if self.nontraining_sample_id is None and not self.training:
+            self.nontraining_sample_id = 0
+        elif self.training:
+            self.nontraining_sample_id = None 
 
         min_logit = torch.min(transformer_result.logits)
         # print("Min logit ", min_logit)
@@ -489,21 +493,30 @@ class PythonGrammarGPT2(torch.nn.Module):
         mistakes = torch.ones_like(useful_labels)
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
         # print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
-        self.cur_debug_eval_samples = self.num_debug_eval_samples        
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0        
             self.cur_debug_tokens = self.num_debug_tokens
-            self.debug_mistakes = (self.cur_debug_eval_samples > 0) and not self.training                   
+            self.debug_mistakes = not self.training and (self.self.nontraining_sample_id < self.num_debug_eval_samples)
             if self.debug_mistakes:
-                print(f"Debugging sample {sample_id}:")
+                print(f"Debugging sample {sample_id}/{self.self.nontraining_sample_id}:")
             non_empty_labels = (labels[sample_id] != -100).nonzero()
             token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
             # print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
-            self.cur_debug_eval_samples = max(self.cur_debug_eval_samples - 1, 0)
+            if self.debug_mistakes:
+                self.nontraining_sample_id += 1
+                sample_grammar_logits = positive_logits[sample_id] * grammar_mask[sample_id]
+                sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
+                sample_val = tokenizer.decode(sample_predictions)
+                print("Decoded grammar logits:\n",sample_val)
+                print("Grammar logits:\n",sample_predictions)
+                sample_inner_logits = scores[sample_id] * grammar_mask[sample_id]
+                inner_predictions = torch.argmax(sample_inner_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
+                print("Inner logits:\n", inner_predictions)
+                # print("Grammar mask:\n", grammar_mask[sample_id, token_id:])
             # self.enable_logging = False
             # print()
 
