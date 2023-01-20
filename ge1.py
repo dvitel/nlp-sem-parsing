@@ -498,9 +498,9 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0        
             self.cur_debug_tokens = self.num_debug_tokens
-            self.debug_mistakes = not self.training and (self.self.nontraining_sample_id < self.num_debug_eval_samples)
+            self.debug_mistakes = not self.training and (self.nontraining_sample_id < self.num_debug_eval_samples)
             if self.debug_mistakes:
-                print(f"Debugging sample {sample_id}/{self.self.nontraining_sample_id}:")
+                print(f"Debugging sample {sample_id}/{self.nontraining_sample_id}:")
             non_empty_labels = (labels[sample_id] != -100).nonzero()
             token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
             # print("First token is ", token_id)
