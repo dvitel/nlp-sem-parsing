@@ -201,7 +201,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.max_possible_const_size = 10
         # self.length_proba = 0.95 #with each new token the logit will be decreased by this value
         self.enable_logging = False
-        self.num_debug_eval_samples = 4
+        self.num_debug_eval_samples = 0 #4
         self.debug_mistakes = False
         self.num_debug_tokens = 15
         self.cur_debug_tokens = 0
@@ -486,7 +486,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         # print("Min logit ", min_logit)
         positive_logits = transformer_result.logits - min_logit.item() + 0.1 #shift level
         # print("P logits ", positive_logits.size())
-        scores = torch.nn.functional.softmax(positive_logits, dim=-1)
+        # scores = torch.nn.functional.softmax(positive_logits, dim=-1)
+        scores = positive_logits #NOTE: scores (above) scales in different manner than positive_logits
 
         depths = torch.ones((positive_logits.size(0), positive_logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
