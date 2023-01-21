@@ -21,7 +21,7 @@ CATEGORY_TYPE = 2
 CATEGORY_LITERAL = 3
 CATEGORY_META = 4
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
-grammar_enforcement_down_level_str = "0" if len(sys.argv) == 1 else sys.argv[1]
+grammar_enforcement_down_level_str = "1.0" if len(sys.argv) == 1 else sys.argv[1]
 print(f"Starting Grammar Enforcement with down level {grammar_enforcement_down_level_str}")
 grammar_enforcement_down_level_str_safe = grammar_enforcement_down_level_str.replace(".", "_")
 grammar_enforcement_down_level = float(grammar_enforcement_down_level_str)
@@ -267,7 +267,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         super(PythonGrammarGPT2, self).__init__()
         self.transformer = GPT2LMHeadModel.from_pretrained(checkpoint) #TODO: pass config as in normal NN 
         self.transformer.resize_token_embeddings(len(tokenizer))
-        self.transformer.to("cuda")     
+        self.transformer.to("cuda")
+        self.nontraining_sample_id = None 
 
     def pick_symbol_or_token(self, data: GELayerData, token_id: int, depth: int, category: CATEGORY_SYMBOL | CATEGORY_TYPE | CATEGORY_LITERAL | CATEGORY_META):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
@@ -387,10 +388,11 @@ class PythonGrammarGPT2(torch.nn.Module):
         attention_mask: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None
     ):
-        transformer_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, labels = labels)
-        nontraining_sample_id = None
-        if nontraining_sample_id is None and not self.training:
-            nontraining_sample_id = 0
+        transformer_result = self.transformer(input_ids = input_ids, attention_mask = attention_mask, labels = labels)        
+        if self.training:
+            self.nontraining_sample_id = None
+        elif labels is not None and self.nontraining_sample_id is None:
+            self.nontraining_sample_id = 0
 
         min_logit = torch.min(transformer_result.logits)
 
@@ -405,10 +407,10 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized ??
-            debug_mistakes = not self.training and labels is not None and (nontraining_sample_id < num_debug_eval_samples)
+            debug_mistakes = not self.training and (labels is not None) and (self.nontraining_sample_id < num_debug_eval_samples)
             cur_debug_tokens = None
             if debug_mistakes:
-                print(f"Debugging sample {sample_id}/{nontraining_sample_id}:")
+                print(f"Debugging sample {sample_id}/{self.nontraining_sample_id}:")
                 cur_debug_tokens = 0
 
             data = GELayerData(sample_id, positive_logits[sample_id], grammar_mask[sample_id], filtered_logits[sample_id], 
@@ -428,7 +430,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 # if error_depths.numel() > 0:
                 #     first_error_depths.append(torch.min(error_depths))
             if debug_mistakes:
-                nontraining_sample_id += 1
+                self.nontraining_sample_id += 1
                 sample_grammar_logits = positive_logits[sample_id] * grammar_mask[sample_id]
                 sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[token_id:token_id + num_debug_tokens]
                 sample_val = tokenizer.decode(sample_predictions)
