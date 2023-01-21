@@ -5,4 +5,4 @@
 #SBATCH --gpus=1 # 1 GPU
 #SBATCH -w GPU45
 conda activate semParse2
-python3 /home/d/dvitel/semp/ge.py $1 $2
+python3 /home/d/dvitel/semp/ge.py "$@"
