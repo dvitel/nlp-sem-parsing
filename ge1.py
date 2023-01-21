@@ -508,7 +508,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
             if not self.training:
-                error_depths = depths[mistakes[sample_id] > 0]
+                error_depths = depths[sample_id, mistakes[sample_id] > 0]
                 if error_depths.numel() > 0:
                     first_error_depths.append(torch.min(error_depths))
             if self.debug_mistakes:
