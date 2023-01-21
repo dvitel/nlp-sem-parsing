@@ -432,7 +432,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             
             non_empty_labels = (labels[sample_id] != -100).nonzero()
             label_token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
-            separators = (input_ids == tokenizer.eos_token_id).nonzero()
+            separators = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()
             start_token_id = separators[0].item() if separators.numel() > 0 else 0
             print(f"First token is label> {label_token_id}, input> {start_token_id}")
             end_token_id = self._decode_symbol_arg(data, start_symbol, start_token_id, 1) #updates logits corresponding to grammar
