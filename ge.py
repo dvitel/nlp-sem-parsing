@@ -161,18 +161,20 @@ testset_predictions = []
 testset_categories = []
 testset_labels = []
 testset_programlen = []
+testset_starts = []
 
 def compute_error_stats():
     """ Note that this metric is only available after eval and will be reset on call """
     stats = defaultdict(list)
     stats['proglen'].extend(testset_programlen)
-    for sample_labels, sample_predictions, sample_depths, sample_categories in zip(testset_labels, testset_predictions, testset_depths, testset_categories):
-        misses = torch.logical_and(sample_labels != -100, sample_labels != sample_predictions)
-        literal_miss = torch.logical_and(misses, sample_categories == CATEGORY_LITERAL)
-        symbol_miss = torch.logical_and(misses, sample_categories == CATEGORY_SYMBOL)
-        meta_miss = torch.logical_and(misses, sample_categories == CATEGORY_META)
-        type_miss = torch.logical_and(misses, sample_categories == CATEGORY_TYPE)
-        stats['misses'].append(torch.sum(misses))
+    for sample_labels, sample_predictions, sample_depths, sample_categories, sample_start in zip(testset_labels, testset_predictions, testset_depths, testset_categories, testset_starts):
+        bare_misses = torch.logical_and(sample_labels != -100, sample_labels != sample_predictions)
+        literal_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_LITERAL)
+        symbol_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_SYMBOL)
+        meta_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_META)
+        type_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_TYPE)
+        misses = torch.logical_or(literal_miss, torch.logical_or(symbol_miss, torch.logical_or(meta_miss, type_miss)))
+        stats['total_miss'].append(torch.sum(misses))
         stats['literal_miss'].append(torch.sum(literal_miss))
         stats['symbol_miss'].append(torch.sum(symbol_miss))
         stats['meta_miss'].append(torch.sum(meta_miss))
@@ -184,26 +186,27 @@ def compute_error_stats():
         stats['type_miss_depth'].extend(sample_depths[type_miss])
         miss_idxs = torch.where(misses)[0]
         if miss_idxs.numel() > 0:
-            stats['first_miss_pos'].append(miss_idxs[0])
+            stats['first_miss_pos'].append(miss_idxs[0] - sample_start)
         miss_idxs = torch.where(literal_miss)[0]
         if miss_idxs.numel() > 0:
-            stats['first_literal_miss_pos'].append(miss_idxs[0])
+            stats['first_literal_miss_pos'].append(miss_idxs[0].item() - sample_start)
         miss_idxs = torch.where(symbol_miss)[0]
         if miss_idxs.numel() > 0:
-            stats['first_symbol_miss_pos'].append(miss_idxs[0])
+            stats['first_symbol_miss_pos'].append(miss_idxs[0].item() - sample_start)
         miss_idxs = torch.where(meta_miss)[0]
         if miss_idxs.numel() > 0:
-            stats['first_meta_miss_pos'].append(miss_idxs[0])
+            stats['first_meta_miss_pos'].append(miss_idxs[0].item() - sample_start)
         miss_idxs = torch.where(type_miss)[0]
         if miss_idxs.numel() > 0:
-            stats['first_type_miss_pos'].append(miss_idxs[0])
+            stats['first_type_miss_pos'].append(miss_idxs[0].item() - sample_start)
     # avg_depth = None if len(first_error_depths) == 0 else np.mean(first_error_depths)
-    res = {k:None if len(v) == 0 else np.mean(v) for k,v in stats.items()}
+    res = {k:None if len(v) == 0 else np.sum(v) if k.endswith("_miss") else np.mean(v) for k,v in stats.items()}
     testset_depths.clear()
     testset_predictions.clear()
     testset_categories.clear()
     testset_labels.clear()
     testset_programlen.clear()
+    testset_starts.clear()
     return res #{"error_depth":avg_depth}
 
 
@@ -439,6 +442,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             end_token_id = self._decode_symbol_arg(data, start_symbol, start_token_id, 1) #updates logits corresponding to grammar
             if predictions is not None and labels is not None: 
                 testset_programlen.append(end_token_id - start_token_id)
+                testset_starts.append(start_token_id)
             # if data.predictions is not None and labels is not None: #not training and not production - eval 
 
                 # error_depths = data.depths[(data.labels != -100) and (data.predictions != data.labels)]
