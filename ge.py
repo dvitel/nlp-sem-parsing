@@ -253,7 +253,7 @@ class GELayerData:
     sample_id: int
     transformer_positive_logits: 'torch.tensor' #3d cube of logits
     logits_filter: 'torch.tensor'
-    filtered_logits: 'torch.tensor' #eventually have to be transformer_positive_logits * logits_filter
+    filtered_logits: 'Optional[torch.tensor]' #eventually have to be transformer_positive_logits * logits_filter
     labels: 'torch.tensor'
     depths: 'torch.tesnor' #annotation of each token with depth in the ast 
     categories: 'torch.tensor' #annotation of each token with grammar category
@@ -274,9 +274,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             data.depths[token_id] = depth
-            data.categories[token_id] = category
-            data.filtered_logits[token_id] = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
+            data.categories[token_id] = category            
             if data.predictions is not None:
+                data.filtered_logits[token_id] = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
                 prediction = torch.argmax(data.filtered_logits[token_id]).item()
                 data.predictions[token_id] = prediction
             else: 
@@ -312,10 +312,12 @@ class PythonGrammarGPT2(torch.nn.Module):
         if parent.type == ast.Constant:
             #first token in a chunk should be a type of literal
             label_ids = [ symbol_to_tid_map[label] for label in grammar_collector.non_ast_types.keys() ]
+            data.logits_filter[token_id, :] = grammar_enforcement_down_level
             data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level            
             self.pick_symbol_or_token(data, token_id, depth, CATEGORY_TYPE)            
             token_id += 1        
         #first symbol have to be literal start
+        data.logits_filter[token_id, :] = grammar_enforcement_down_level
         data.logits_filter[token_id, literal_start_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
@@ -332,6 +334,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             return data.max_token_num
         # assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
         #first symbol have to be LST
+        data.logits_filter[token_id, :] = grammar_enforcement_down_level
         data.logits_filter[token_id, lst_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
@@ -339,6 +342,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
+            data.logits_filter[token_id, :] = grammar_enforcement_down_level
             data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level
             symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
             token_id += 1 
@@ -364,6 +368,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         # assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
+        data.logits_filter[token_id, :] = grammar_enforcement_down_level
         data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level                
         symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
         token_id += 1
@@ -402,8 +407,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         categories = torch.zeros((positive_logits.size(0), positive_logits.size(1)), device = "cpu", dtype = torch.int)
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
         predictions = None if self.training else torch.full_like(useful_labels, -100)
-        grammar_mask = torch.full_like(positive_logits, grammar_enforcement_down_level)
-        filtered_logits = torch.full_like(positive_logits, 0)        
+        grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
+        filtered_logits = None if self.training else torch.full_like(positive_logits, 0)        
 
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized ??
@@ -413,7 +418,8 @@ class PythonGrammarGPT2(torch.nn.Module):
                 print(f"Debugging sample {sample_id}/{self.nontraining_sample_id}:")
                 cur_debug_tokens = 0
 
-            data = GELayerData(sample_id, positive_logits[sample_id], grammar_mask[sample_id], filtered_logits[sample_id], 
+            data = GELayerData(sample_id, positive_logits[sample_id], grammar_mask[sample_id], 
+                                None if filtered_logits is None else filtered_logits[sample_id], 
                                 labels = useful_labels[sample_id], depths = depths[sample_id], 
                                 categories = categories[sample_id], predictions = None if predictions is None else predictions[sample_id], 
                                 cur_debug_tokens=cur_debug_tokens)  
