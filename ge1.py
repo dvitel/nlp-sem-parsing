@@ -507,6 +507,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
             if self.debug_mistakes:
+                print(f"PL size: {positive_logits.size()}, GM size: {grammar_mask.size()}, Scores size: {scores.size()}")
                 self.nontraining_sample_id += 1
                 sample_grammar_logits = positive_logits[sample_id] * grammar_mask[sample_id]
                 sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
@@ -520,7 +521,8 @@ class PythonGrammarGPT2(torch.nn.Module):
                     gp1 = sample_grammar_logits[token_id+tid]
                     ip = scores[sample_id, token_id+tid]
                     ip1 = sample_inner_logits[token_id+tid]
-                    print(f"--> [{tid}] G prediction: {sample_grammar_prediction}, I prediction: {inner_prediction}, G logit: {gp[sample_grammar_prediction]} vs {gp[inner_prediction]}/{gp1[sample_grammar_prediction]} vs {gp1[inner_prediction]}, I logit {ip[sample_grammar_prediction]} vs {ip[inner_prediction]}/{ip1[sample_grammar_prediction]} vs {ip1[inner_prediction]}")
+                    gm = grammar_mask[sample_id, token_id+tid]
+                    print(f"--> [{tid}] Gmask: {gm[sample_grammar_prediction]} vs {gm[inner_prediction]},  G prediction: {sample_grammar_prediction}, I prediction: {inner_prediction}, G logit: {gp[sample_grammar_prediction]} vs {gp[inner_prediction]}/{gp1[sample_grammar_prediction]} vs {gp1[inner_prediction]}, I logit {ip[sample_grammar_prediction]} vs {ip[inner_prediction]}/{ip1[sample_grammar_prediction]} vs {ip1[inner_prediction]}")
                 # print("Grammar mask:\n", grammar_mask[sample_id, token_id:])
             # self.enable_logging = False
             # print()
