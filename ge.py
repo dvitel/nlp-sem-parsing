@@ -253,7 +253,6 @@ class GELayerData:
     sample_id: int
     transformer_positive_logits: 'torch.tensor' #3d cube of logits
     logits_filter: 'torch.tensor'
-    filtered_logits: 'Optional[torch.tensor]' #eventually have to be transformer_positive_logits * logits_filter
     labels: 'torch.tensor'
     depths: 'torch.tesnor' #annotation of each token with depth in the ast 
     categories: 'torch.tensor' #annotation of each token with grammar category
@@ -276,18 +275,21 @@ class PythonGrammarGPT2(torch.nn.Module):
             data.depths[token_id] = depth
             data.categories[token_id] = category            
             if data.predictions is not None:
-                data.filtered_logits[token_id] = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
-                prediction = torch.argmax(data.filtered_logits[token_id]).item()
+                filtered_logits = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
+                prediction = torch.argmax(filtered_logits).item()
                 data.predictions[token_id] = prediction
+                label_logit = filtered_logits[label]
+                prediction_logit = filtered_logits[prediction]
             else: 
                 prediction = -100
+                label_logit = prediction_logit = None 
             label = data.labels[token_id].item()
             tid = label if (label != -100) and self.training else prediction
             symbol_name = tid_to_symbol_map.get(tid, None) #NOTE: teacher forcing - we only allow gold labels during training
             if data.cur_debug_tokens and data.cur_debug_tokens < num_debug_tokens:
                 label_token = tokenizer.decode(label)                
                 prediction_token = tokenizer.decode(prediction) if label != prediction else label_token
-                print(f"\t[{token_id}] {label == prediction} l {label} '{label_token}' {data.filtered_logits[token_id, label]}, p {prediction} '{prediction_token}' {data.filtered_logits[token_id, prediction]} | {data.cur_debug_tokens}")
+                print(f"\t[{token_id}] {label == prediction} l {label} '{label_token}' {label_logit}, p {prediction} '{prediction_token}' {prediction_logit} | {data.cur_debug_tokens}")
                 data.cur_debug_tokens += 1
             return (symbol_name, tid) #NOTE: symbol_name could be None
         except KeyError as e: 
@@ -312,17 +314,20 @@ class PythonGrammarGPT2(torch.nn.Module):
         if parent.type == ast.Constant:
             #first token in a chunk should be a type of literal
             label_ids = [ symbol_to_tid_map[label] for label in grammar_collector.non_ast_types.keys() ]
-            data.logits_filter[token_id, :] = grammar_enforcement_down_level
-            data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level            
+            logits_filter = data.logits_filter[token_id, :]
+            logits_filter[:] = grammar_enforcement_down_level
+            logits_filter[label_ids] = grammar_enforcement_up_level            
             self.pick_symbol_or_token(data, token_id, depth, CATEGORY_TYPE)            
             token_id += 1        
         #first symbol have to be literal start
-        data.logits_filter[token_id, :] = grammar_enforcement_down_level
-        data.logits_filter[token_id, literal_start_id] = grammar_enforcement_up_level
+        logits_filter = data.logits_filter[token_id, :]
+        logits_filter[:] = grammar_enforcement_down_level
+        logits_filter[literal_start_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
         while token_id < data.max_token_num:
-            data.logits_filter[token_id, :] = grammar_enforcement_up_level     
+            logits_filter = data.logits_filter[token_id, :]
+            logits_filter[:] = grammar_enforcement_up_level     
             symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_LITERAL)
             token_id += 1 
             if symbol_name == NEND: #exit the constant synth                
@@ -334,16 +339,18 @@ class PythonGrammarGPT2(torch.nn.Module):
             return data.max_token_num
         # assert attr.is_seq and attr.group is not None, f"Cannot read sequence for {attr}"
         #first symbol have to be LST
-        data.logits_filter[token_id, :] = grammar_enforcement_down_level
-        data.logits_filter[token_id, lst_id] = grammar_enforcement_up_level
+        logits_filter = data.logits_filter[token_id, :]
+        logits_filter[:] = grammar_enforcement_down_level
+        logits_filter[lst_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
         while token_id < data.max_token_num:
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
-            data.logits_filter[token_id, :] = grammar_enforcement_down_level
-            data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level
+            logits_filter = data.logits_filter[token_id, :]
+            logits_filter[:] = grammar_enforcement_down_level
+            logits_filter[label_ids] = grammar_enforcement_up_level
             symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
             token_id += 1 
             if symbol_name == NEND: #enforce NEND and break                                 
@@ -368,8 +375,9 @@ class PythonGrammarGPT2(torch.nn.Module):
         # assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
-        data.logits_filter[token_id, :] = grammar_enforcement_down_level
-        data.logits_filter[token_id, label_ids] = grammar_enforcement_up_level                
+        logits_filter = data.logits_filter[token_id, :]
+        logits_filter[:] = grammar_enforcement_down_level
+        logits_filter[label_ids] = grammar_enforcement_up_level                
         symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
         token_id += 1
         if symbol_name is not None:
@@ -408,7 +416,6 @@ class PythonGrammarGPT2(torch.nn.Module):
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
         predictions = None if self.training else torch.full_like(useful_labels, -100)
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
-        filtered_logits = None if self.training else torch.full_like(positive_logits, 0)        
 
         for sample_id in range(positive_logits.size(0)):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized ??
@@ -418,18 +425,19 @@ class PythonGrammarGPT2(torch.nn.Module):
                 print(f"Debugging sample {sample_id}/{self.nontraining_sample_id}:")
                 cur_debug_tokens = 0
 
-            data = GELayerData(sample_id, positive_logits[sample_id], grammar_mask[sample_id], 
-                                None if filtered_logits is None else filtered_logits[sample_id], 
-                                labels = useful_labels[sample_id], depths = depths[sample_id], 
-                                categories = categories[sample_id], predictions = None if predictions is None else predictions[sample_id], 
+            data = GELayerData(sample_id, positive_logits[sample_id, :-1], grammar_mask[sample_id, :-1], 
+                                labels = useful_labels[sample_id, 1:], depths = depths[sample_id, :-1], 
+                                categories = categories[sample_id, :-1], predictions = None if predictions is None else predictions[sample_id, :-1], 
                                 cur_debug_tokens=cur_debug_tokens)  
             
             non_empty_labels = (labels[sample_id] != -100).nonzero()
-            token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
-            # print("First token is ", token_id)
-            program_len = self._decode_symbol_arg(data, start_symbol, token_id, 1) #updates logits corresponding to grammar
+            label_token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
+            separators = (input_ids == tokenizer.eos_token_id).nonzero()
+            start_token_id = separators[0].item() if separators.numel() > 0 else 0
+            print(f"First token is label> {label_token_id}, input> {start_token_id}")
+            end_token_id = self._decode_symbol_arg(data, start_symbol, start_token_id, 1) #updates logits corresponding to grammar
             if predictions is not None and labels is not None: 
-                testset_programlen.append(program_len)
+                testset_programlen.append(end_token_id - start_token_id)
             # if data.predictions is not None and labels is not None: #not training and not production - eval 
 
                 # error_depths = data.depths[(data.labels != -100) and (data.predictions != data.labels)]
@@ -438,24 +446,24 @@ class PythonGrammarGPT2(torch.nn.Module):
             if debug_mistakes:
                 self.nontraining_sample_id += 1
                 sample_grammar_logits = positive_logits[sample_id] * grammar_mask[sample_id]
-                sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[token_id:token_id + num_debug_tokens]
+                sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[start_token_id:start_token_id + num_debug_tokens]
                 sample_val = tokenizer.decode(sample_predictions)
                 print("Decoded grammar logits:\n",sample_val)
                 # print("Grammar logits:\n",sample_predictions)
                 for i, sample_grammar_prediction in enumerate(sample_predictions):
-                    gp = data.transformer_positive_logits[token_id+i]
-                    gp1 = data.filtered_logits[token_id + i]
-                    gm = data.logits_filter[token_id + i]
+                    gp = data.transformer_positive_logits[start_token_id + i]
+                    gp1 = data.transformer_positive_logits[start_token_id + i] * data.logits_filter[start_token_id + i]
+                    gm = data.logits_filter[start_token_id + i]
                     print(f"--> [{i}] Gmask: {gm[sample_grammar_prediction]},  G prediction: {sample_grammar_prediction}, G logit: {gp[sample_grammar_prediction]}/{gp1[sample_grammar_prediction]}")                    
 
         if predictions is not None and labels is not None: 
             cpu_predictions = predictions.to("cpu")
             cpu_labels = useful_labels.to("cpu")            
             for sample_id in range(positive_logits.size(0)):
-                testset_depths.append(depths[sample_id])
-                testset_categories.append(categories[sample_id])
-                testset_predictions.append(cpu_predictions[sample_id])
-                testset_labels.append(cpu_labels[sample_id])
+                testset_depths.append(depths[sample_id, :-1])
+                testset_categories.append(categories[sample_id, :-1])
+                testset_predictions.append(cpu_predictions[sample_id, :-1])
+                testset_labels.append(cpu_labels[sample_id, 1:])
 
         grammar_logits = positive_logits * grammar_mask
 
