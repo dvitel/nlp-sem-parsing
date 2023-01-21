@@ -275,7 +275,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             data.depths[token_id] = depth
             data.categories[token_id] = category
             data.filtered_logits[token_id] = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
-            if data.predictions:
+            if data.predictions is not None:
                 prediction = torch.argmax(data.filtered_logits[token_id]).item()
                 data.predictions[token_id] = prediction
             else: 
