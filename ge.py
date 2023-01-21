@@ -273,7 +273,8 @@ class PythonGrammarGPT2(torch.nn.Module):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             data.depths[token_id] = depth
-            data.categories[token_id] = category            
+            data.categories[token_id] = category        
+            label = data.labels[token_id].item()    
             if data.predictions is not None:
                 filtered_logits = data.transformer_positive_logits[token_id] * data.logits_filter[token_id] 
                 prediction = torch.argmax(filtered_logits).item()
@@ -282,8 +283,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 prediction_logit = filtered_logits[prediction]
             else: 
                 prediction = -100
-                label_logit = prediction_logit = None 
-            label = data.labels[token_id].item()
+                label_logit = prediction_logit = None             
             tid = label if (label != -100) and self.training else prediction
             symbol_name = tid_to_symbol_map.get(tid, None) #NOTE: teacher forcing - we only allow gold labels during training
             if data.cur_debug_tokens and data.cur_debug_tokens < num_debug_tokens:
