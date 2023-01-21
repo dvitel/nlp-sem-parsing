@@ -428,13 +428,14 @@ class PythonGrammarGPT2(torch.nn.Module):
             data = GELayerData(sample_id, positive_logits[sample_id, :-1], grammar_mask[sample_id, :-1], 
                                 labels = useful_labels[sample_id, 1:], depths = depths[sample_id, :-1], 
                                 categories = categories[sample_id, :-1], predictions = None if predictions is None else predictions[sample_id, :-1], 
-                                cur_debug_tokens=cur_debug_tokens)  
+                                cur_debug_tokens=cur_debug_tokens, max_token_num = max_length - 1)  
             
-            non_empty_labels = (labels[sample_id] != -100).nonzero()
-            label_token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
+            # non_empty_labels = (labels[sample_id] != -100).nonzero()
+            # label_token_id = non_empty_labels[0].item() - 1 if non_empty_labels.numel() > 0 else 0 #TODO: should be not 0 but id of position after init sentence
             separators = (input_ids[sample_id] == tokenizer.eos_token_id).nonzero()
-            start_token_id = separators[0].item() if separators.numel() > 0 else 0
-            print(f"First token is label> {label_token_id}, input> {start_token_id}")
+            start_token_id = separators[0].item() if separators.numel() > 0 else 0 #NOTE: 0 cannot be!!!! - Too long initial sentence 
+
+            # print(f"First token is label> {label_token_id}, input> {start_token_id}")
             end_token_id = self._decode_symbol_arg(data, start_symbol, start_token_id, 1) #updates logits corresponding to grammar
             if predictions is not None and labels is not None: 
                 testset_programlen.append(end_token_id - start_token_id)
