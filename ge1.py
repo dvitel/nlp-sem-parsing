@@ -517,8 +517,10 @@ class PythonGrammarGPT2(torch.nn.Module):
                 inner_predictions = torch.argmax(sample_inner_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
                 for (tid, (sample_grammar_prediction, inner_prediction)) in enumerate(zip(sample_predictions, inner_predictions)):
                     gp = positive_logits[sample_id, token_id+tid]
+                    gp1 = sample_grammar_logits[token_id+tid]
                     ip = scores[sample_id, token_id+tid]
-                    print(f"--> [{tid}] G prediction: {sample_grammar_prediction}, I prediction: {inner_prediction}, G logit: {gp[sample_grammar_prediction]} vs {gp[inner_prediction]}, I logit {ip[sample_grammar_prediction]} vs {ip[inner_prediction]}")
+                    ip1 = sample_inner_logits[token_id+tid]
+                    print(f"--> [{tid}] G prediction: {sample_grammar_prediction}, I prediction: {inner_prediction}, G logit: {gp[sample_grammar_prediction]} vs {gp[inner_prediction]}/{gp1[sample_grammar_prediction]} vs {gp1[inner_prediction]}, I logit {ip[sample_grammar_prediction]} vs {ip[inner_prediction]}/{ip1[sample_grammar_prediction]} vs {ip1[inner_prediction]}")
                 # print("Grammar mask:\n", grammar_mask[sample_id, token_id:])
             # self.enable_logging = False
             # print()
