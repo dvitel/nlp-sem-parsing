@@ -491,7 +491,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depths = torch.ones((positive_logits.size(0), positive_logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
-        mistakes = torch.zeros_like(useful_labels)
+        mistakes = torch.zeros_like(useful_labels, device = "cpu")
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
         # print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
         for sample_id in range(positive_logits.size(0)):
