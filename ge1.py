@@ -211,7 +211,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         # self.err_weight = 10.
         #logits batch_size x sentence_length x size of vocab (logits)     
 
-    def pick_symbol(self, symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols = False):
+    def pick_symbol(self, symbol_tensor, labels, token_id, mistake_made, depth, mistakes, allow_non_symbols = False):
         """ finds symbol for token. If teacher-forced, returns symbol according to labels"""
         try:
             prediction = torch.argmax(symbol_tensor).item()
@@ -225,9 +225,9 @@ class PythonGrammarGPT2(torch.nn.Module):
                 symbol_name = tid_to_symbol_map[prediction]
             else: #cannot teacher-force, retry this routine, symbol_name is unknown
                 symbol_name = None 
+            mistakes[token_id] = 1 if prediction != label else 0
             if not mistake_made and prediction != label and label != -100 and not self.training:
                 mistake_made = True 
-                first_error_depths.append(depth)
             if self.debug_mistakes and (self.cur_debug_tokens < self.num_debug_tokens):
                 label_token = tokenizer.decode(label)
                 if label != prediction:
@@ -266,7 +266,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter[:] = grammar_enforcement_down_level
             logits_filter[label_ids] = grammar_enforcement_up_level
             symbol_tensor = sample_tensor[token_id, :] * logits_filter
-            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes)
             depths[token_id] = depth            
             # if mistake_made:
             #     labels[token_id] = -100
@@ -289,7 +289,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         depths[token_id] = depth
 
         symbol_tensor = sample_tensor[token_id] * logits_filter
-        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols=True)
+        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes, allow_non_symbols=True)
 
         # if mistake_made: #ignore new errors because mistake was alreeady made at root node
         # NOTE: here we cannot make a mistake on LST node - ignore it anyway
@@ -312,7 +312,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
             symbol_tensor = sample_tensor[token_id] * logits_filter            
             # print("Masked p", masked_t)
-            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols=True)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes, allow_non_symbols=True)
 
             # if mistake_made:
             #     labels[token_id] = -100       
@@ -346,7 +346,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         depths[token_id] = depth
 
         symbol_tensor = sample_tensor[token_id] * logits_filter
-        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, allow_non_symbols=True)
+        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes, allow_non_symbols=True)
         # if symbol_name != LST:
         #     #TODO: should we retry LST generation in eval/test/pred mode? Currently - skip position and proceed 
         #     pass
@@ -382,7 +382,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             # mask[label_ids] = 1
             symbol_tensor = sample_tensor[token_id] * logits_filter
             # print("Masked p", masked_t)
-            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
+            symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes)
             if symbol_name == NEND: #enforce NEND and break                 
                 if self.enable_logging:
                     padding = "\t" * depth
@@ -432,7 +432,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         depths[token_id] = depth
         # print(sample_tensor[token_id, :])
                 
-        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth)
+        symbol_name, _, mistake_made = self.pick_symbol(symbol_tensor, labels, token_id, mistake_made, depth, mistakes)
 
         # if mistake_made: #if mistake made before in ast - do not try correct errors after
         #     labels[token_id] = -100 
@@ -491,7 +491,7 @@ class PythonGrammarGPT2(torch.nn.Module):
 
         depths = torch.ones((positive_logits.size(0), positive_logits.size(1)), device = "cpu")
         useful_labels = torch.clone(labels) if labels is not None else torch.full((positive_logits.size(0), positive_logits.size(1)), -100, device = positive_logits.device)
-        mistakes = torch.ones_like(useful_labels)
+        mistakes = torch.zeros_like(useful_labels)
         grammar_mask = torch.full_like(positive_logits, grammar_enforcement_up_level)
         # print("G mask ", grammar_mask.size(), " scores ", scores.size(), " depths ", depths.size(), " useful_labels ", useful_labels.size(), " mistakes ", mistakes.size())
         for sample_id in range(positive_logits.size(0)):
@@ -507,6 +507,10 @@ class PythonGrammarGPT2(torch.nn.Module):
             # print("First token is ", token_id)
             self._decode_symbol_arg(grammar_mask[sample_id, :-1, :], scores[sample_id, :-1], depths[sample_id, :-1], 
                                         useful_labels[sample_id, 1:], attrs, token_id, 1, False, mistakes[sample_id, :-1]) #updates logits corresponding to grammar
+            if not self.training:
+                error_depths = depths[mistakes[sample_id] > 0]
+                if error_depths.numel() > 0:
+                    first_error_depths.append(torch.min(error_depths))
             if self.debug_mistakes:
                 print(f"PL size: {positive_logits.size()}, GM size: {grammar_mask.size()}, Scores size: {scores.size()}")
                 self.nontraining_sample_id += 1
