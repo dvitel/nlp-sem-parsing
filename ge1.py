@@ -204,7 +204,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         self.num_debug_eval_samples = 4
         self.debug_mistakes = False
         self.num_debug_tokens = 15
-        self.cur_debug_tokens = self.num_debug_tokens
+        self.cur_debug_tokens = 0
         self.nontraining_sample_id = None
         # self.ast_weight = 10.
         # self.length_weight = 2.
@@ -228,14 +228,14 @@ class PythonGrammarGPT2(torch.nn.Module):
             if not mistake_made and prediction != label and label != -100 and not self.training:
                 mistake_made = True 
                 first_error_depths.append(depth)
-            if self.debug_mistakes and self.cur_debug_tokens > 0:
+            if self.debug_mistakes and (self.cur_debug_tokens < self.num_debug_tokens):
                 label_token = tokenizer.decode(label)
                 if label != prediction:
                     prediction_token = tokenizer.decode(prediction)
                 else:
                     prediction_token = label_token
                 print(f"\t[{token_id}] {label == prediction} l {label} '{label_token}' {symbol_tensor[label]}, p {prediction} '{prediction_token}' {symbol_tensor[prediction]} | {self.cur_debug_tokens}")
-                self.cur_debug_tokens -= 1
+                self.cur_debug_tokens += 1
             return (symbol_name, label if (label != -100) and self.training else prediction, mistake_made)
         except KeyError as e: 
             print("Error, cannot find key", e, file = sys.stderr)
@@ -497,7 +497,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             #NOTE: each sample has its own grammar flow. Cannot be parallelized 
             # print(f"Batch {sample_id}")
             # self.enable_logging = sample_id == 0        
-            self.cur_debug_tokens = self.num_debug_tokens
+            self.cur_debug_tokens = 0
             self.debug_mistakes = not self.training and (self.nontraining_sample_id < self.num_debug_eval_samples)
             if self.debug_mistakes:
                 print(f"Debugging sample {sample_id}/{self.nontraining_sample_id}:")
@@ -512,10 +512,13 @@ class PythonGrammarGPT2(torch.nn.Module):
                 sample_predictions = torch.argmax(sample_grammar_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
                 sample_val = tokenizer.decode(sample_predictions)
                 print("Decoded grammar logits:\n",sample_val)
-                print("Grammar logits:\n",sample_predictions)
+                # print("Grammar logits:\n",sample_predictions)
                 sample_inner_logits = scores[sample_id] * grammar_mask[sample_id]
                 inner_predictions = torch.argmax(sample_inner_logits, dim=-1)[token_id:token_id+self.num_debug_tokens]
-                print("Inner logits:\n", inner_predictions)
+                for (tid, (sample_grammar_prediction, inner_prediction)) in enumerate(zip(sample_predictions, inner_predictions)):
+                    gp = sample_grammar_logits[token_id+tid]
+                    ip = sample_inner_logits[token_id+tid]
+                    print(f"--> [{tid}] G prediction: {sample_grammar_prediction}, I prediction: {inner_prediction}, G logit: {gp[sample_grammar_prediction]} vs {gp[inner_prediction]}, I logit {ip[sample_grammar_prediction]} vs {ip[inner_prediction]}")
                 # print("Grammar mask:\n", grammar_mask[sample_id, token_id:])
             # self.enable_logging = False
             # print()
