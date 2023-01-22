@@ -139,7 +139,7 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
     correct_count = 0
     all_count = 0
     unparse_type_errors = 0
-    errs_to_print = 10
+    errs_to_print = 3
     for preds, labels, was_match in zip(prediction_labels, shift_labels, matches):              
         label_map = labels >= 0
         start_tid = np.where(label_map)[0][0]
@@ -152,8 +152,10 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
             correct_count += 1
         except ValueError as e:
             unparse_type_errors += 1
+        except TypeError as e:
+            unparse_type_errors += 1            
         except Exception as e:
-            if errs_to_print > 0:
+            if was_match and errs_to_print > 0:
                 print("Error in unprocess on match", e, file = sys.stderr)
                 print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
                 print("MSG:", message, file = sys.stderr)
