@@ -148,9 +148,9 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
             p_text = unprocess(message)
             correct_count += 1
         except Exception as e:
-            if was_match and errs_to_print > 0:
+            if errs_to_print > 0:
                 print("Error in unprocess on match", e, file = sys.stderr)
-                print("Message", message, file = sys.stderr)
+                print("MSG:", message, file = sys.stderr)
                 errs_to_print -= 1
     return {"correct_percent": correct_count / all_count }
 
@@ -168,6 +168,7 @@ def compute_error_stats():
     stats = defaultdict(list)
     stats['proglen'].extend(testset_programlen)
     for sample_labels, sample_predictions, sample_depths, sample_categories, sample_start in zip(testset_labels, testset_predictions, testset_depths, testset_categories, testset_starts):
+        #NOTE: there are also tail misses - when predictions == -100 while labels is not - we do not count them here
         bare_misses = torch.logical_and(sample_labels != -100, sample_labels != sample_predictions)
         literal_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_LITERAL)
         symbol_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_SYMBOL)
