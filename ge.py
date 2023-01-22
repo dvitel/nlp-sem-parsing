@@ -138,21 +138,27 @@ ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"]
 def compute_correct_percent(prediction_labels, shift_labels, matches):
     correct_count = 0
     all_count = 0
-    errs_to_print = 3
+    unparse_type_errors = 0
+    errs_to_print = 10
     for preds, labels, was_match in zip(prediction_labels, shift_labels, matches):              
         label_map = labels >= 0
-        pred_view = preds[label_map]
-        message = [tid_to_symbol_map.get(x, tokenizer.decode(x)) for x in pred_view if x != literal_start_id]
+        start_tid = np.where(label_map)[0][0]
+        pred_view = preds[start_tid:]
+        filtered_pred_view = [x for x in pred_view if x != literal_start_id]
+        message = [tid_to_symbol_map.get(x, tokenizer.decode(x)) for x in filtered_pred_view]
         all_count += 1
         try: 
             p_text = unprocess(message)
             correct_count += 1
+        except ValueError as e:
+            unparse_type_errors += 1
         except Exception as e:
             if errs_to_print > 0:
                 print("Error in unprocess on match", e, file = sys.stderr)
+                print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
                 print("MSG:", message, file = sys.stderr)
                 errs_to_print -= 1
-    return {"correct_percent": correct_count / all_count }
+    return {"correct_percent": correct_count / all_count , "unparse_type_errors_percent": unparse_type_errors / all_count}
 
 # first_error_depths = []
 #NOTE: these are global refs to tensors obtained from eval or test of the model. They are used in metrics to study types of errors
@@ -540,7 +546,11 @@ output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_
 print(output.metrics) #test set metrics
 
 def save_testset_metrics(out_metrics):
-    fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_miss_pos", "test_error_depth", "test_bleu", "test_chrf", "test_CodeBLEU", "timestamp"]
+    fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_unparse_type_errors_percent", "test_proglen",
+                    "test_total_miss", "test_literal_miss", "test_symbol_miss", "test_meta_miss", "test_type_miss",
+                    "test_miss_depth", "test_literal_miss_depth", "test_symbol_miss_depth", "test_meta_miss_depth", "test_type_miss_depth",
+                    "test_first_miss_pos", "test_first_literal_miss_pos", "test_first_symbol_miss_pos", "test_first_meta_miss_pos",
+                    "test_first_type_miss_pos", "test_bleu", "test_chrf", "test_CodeBLEU", "timestamp"]
     filtered_metrics = {k:v for k, v in out_metrics.items() if k in fieldnames}
     filtered_metrics['timestamp'] = datetime.now()
     filtered_metrics['down_level'] = grammar_enforcement_down_level    

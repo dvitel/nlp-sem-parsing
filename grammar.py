@@ -333,7 +333,10 @@ class GrammarCollector():
 # x = 'class Hex(SpellCard):§    def __init__(self):§        super().__init__("Hex", 3, CHARACTER_CLASS.SHAMAN, CARD_RARITY.FREE, target_func=hearthbreaker.targeting.find_minion_spell_target)§§    def use(self, player, game):§        super().use(player, game)§§        frog = hearthbreaker.cards.minions.neutral.Frog()§        minion = frog.create_minion(None)§        minion.card = frog§        self.target.replace(minion)§'
 # x = x.replace("§", "\n")
 # t = ast.parse(x)
-# # v = GrammarCollector()
+# v = GrammarCollector()
+# for t in tasts:
+#     v.collect_metadata(t)    
+
 # # v.collect_metadata(t)
 # print(v.build_message(t, []))
 
@@ -348,7 +351,8 @@ class GrammarCollector():
 # x = ["[FunctionDef]", "__init__", "[NEND]", "[arguments]", "[LST]", "[arg]", "self", "[NEND]", "[NEND]", "[LST]", "[Expr]", "[Call]", "[Attribute]", "[Call]", "[Name]", "super", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "__init__", "[NEND]", "[Load]", "[LST]", "[Constant]", "[str]", "Gnomish Inventor", "[NEND]", "[Constant]", "[int]", "4", "[NEND]", "[Attribute]", "[Name]", "CHARACTER_CLASS", "[NEND]", "[Load]", "ALL", "[NEND]", "[Load]", "[Attribute]", "[Name]", "CARD_RARITY", "[NEND]", "[Load]", "COMMON", "[NEND]", "[Load]", "[NEND]", "[LST]", "[keyword]", "battlecry", "[NEND]", "[Call]", "[Name]", "Battlecry", "[NEND]", "[Load]", "[LST]", "[Call]", "[Name]", "Draw", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "[Call]", "[Name]", "PlayerSelector", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "[NEND]", "[LST]", "[NEND]", "[NEND]"]
 # x = ["[FunctionDef]", "[NEND]", "[arguments]", "[LST]", "[NEND]", "!", "[NEND]", "[Return]", "[List]", "[LST]", "[BoolOp]", "[Load]", "[NEND]", "[Return]", "[Call]", "[Call]", "[List]", "[LST]", "[Call]", "[Name]", "Minion", "[NEND]", "[Load]", "[LST]", "[Constant]", "[int]", "2", "[NEND]", "[Constant]", "[int]", "4", "[NEND]", "[NEND]", "[LST]", "[NEND]", "[NEND]", "[Load]", "[LST]"]
 # x = ["[Module]", "[LST]", "[ClassDef]", "[CLS0]", "[NEND]", "[LST]", "[Name]", "MinionCard", "[NEND]", "[Load]", "[NEND]", "[LST]", "[FunctionDef]", "__init__", "[NEND]", "[arguments]", "[LST]", "[arg]", "self", "[NEND]", "[NEND]", "[LST]", "[Expr]", "[Call]", "[Attribute]", "[Call]", "[Name]", "super", "[NEND]", "[Load]", "[LST]", "[NEND]", "[LST]", "[NEND]", "__init__", "[NEND]", "[Load]", "[LST]", "[str]", "Boulderfist Ogre", "[NEND]", "[Num]", "6", "[NEND]", "[Attribute]", "[Name]", "CHARACTER_CLASS", "[NEND]", "[Load]", "ALL", "[NEND]", "[Load]", "[Attribute]", "[Name]", "CARD_RARITY", "[NEND]", "[Load]", "FREE", "[NEND]", "[Load]", "[NEND]", "[LST]", "[NEND]", "[NEND]", "[FunctionDef]", "create_minion", "[NEND]", "[arguments]", "[LST]", "[arg]", "self", "[NEND]", "[arg]", "[v0]", "[NEND]", "[NEND]", "[LST]", "[Return]", "[Call]", "[Name]", "Minion", "[NEND]", "[Load]", "[LST]", "[Num]", "6", "[NEND]", "[Num]", "7", "[NEND]", "[NEND]", "[LST]", "[NEND]", "[NEND]", "[NEND]", "[NEND]"]  #"[keyword]", "[NEND]", "[Call]", "[Call]"]
-# res = v.unparse(x, start_symbol = SymbolAttr("", is_seq = False, has_values = True, group = ast.mod), constructor=v.build_module)
+# x = ['[Module]', '[LST]', '[ClassDef]', 'B', 'oulder', 'f', 'ist', 'O', 'gre', '[NEND]', '[LST]', '[Name]', 'Min', 'ion', 'Card', '[NEND]', '[Load]', '[NEND]', '[LST]', '[NEND]', '[NEND]', '[Call]', '[Call]', '[a]']
+# res = v.unparse(x, start_symbol = start_symbol, constructor=v.build_module)
 # astunparse.unparse(res)
 
 
