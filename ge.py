@@ -20,6 +20,7 @@ CATEGORY_SYMBOL = 1
 CATEGORY_TYPE = 2
 CATEGORY_LITERAL = 3
 CATEGORY_META = 4
+seed = 17 if len(sys.argv) < 3 else int(sys.argv[2]) 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 grammar_enforcement_down_level_str = "1.0" if len(sys.argv) == 1 else sys.argv[1]
 print(f"Starting Grammar Enforcement with down level {grammar_enforcement_down_level_str}")
@@ -27,8 +28,8 @@ grammar_enforcement_down_level_str_safe = grammar_enforcement_down_level_str.rep
 grammar_enforcement_down_level = float(grammar_enforcement_down_level_str)
 grammar_enforcement_up_level = 1.0
 ds_name = "dvitel/hearthstone"
-out_dir = f"out/ge-{grammar_enforcement_down_level_str_safe}"
-result_path = f"result/ge-{grammar_enforcement_down_level_str_safe}"
+out_dir = f"out/ge-{seed}-{grammar_enforcement_down_level_str_safe}"
+result_path = f"result/ge-{seed}-{grammar_enforcement_down_level_str_safe}"
 checkpoint = "distilgpt2"
 metric_file = "ge-metrics.csv"
 max_length = 912
@@ -36,7 +37,6 @@ batch_size = 8
 num_epochs = 200
 eval_steps = 800
 learning_rate = 4e-5
-seed = 17 if len(sys.argv) < 3 else int(sys.argv[2]) 
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
 
