@@ -32,13 +32,13 @@ result_path = f"result/ge-{grammar_enforcement_down_level_str_safe}"
 checkpoint = "distilgpt2"
 metric_file = "ge-metrics.csv"
 max_length = 912
-batch_size = 4
+batch_size = 8
 num_epochs = 200
-eval_steps = 1600
-learning_rate = 2e-5
-seed = 17
+eval_steps = 800
+learning_rate = 1e-5
+seed = 17 if len(sys.argv) < 3 else int(sys.argv[2]) 
 num_debug_tokens = 15
-num_debug_eval_samples = 0 if len(sys.argv) < 3 else int(sys.argv[2])
+num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -177,39 +177,62 @@ def compute_error_stats():
     stats['proglen'].extend(testset_programlen)
     for sample_labels, sample_predictions, sample_depths, sample_categories, sample_start in zip(testset_labels, testset_predictions, testset_depths, testset_categories, testset_starts):
         #NOTE: there are also tail misses - when predictions == -100 while labels is not - we do not count them here
-        bare_misses = torch.logical_and(sample_labels != -100, sample_labels != sample_predictions)
-        literal_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_LITERAL)
-        symbol_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_SYMBOL)
-        meta_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_META)
-        type_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_TYPE)
-        misses = torch.logical_or(literal_miss, torch.logical_or(symbol_miss, torch.logical_or(meta_miss, type_miss)))
-        stats['total_miss'].append(torch.sum(misses))
-        stats['literal_miss'].append(torch.sum(literal_miss))
-        stats['symbol_miss'].append(torch.sum(symbol_miss))
-        stats['meta_miss'].append(torch.sum(meta_miss))
-        stats['type_miss'].append(torch.sum(type_miss))
-        stats['miss_depth'].extend(sample_depths[misses])            
-        stats['literal_miss_depth'].extend(sample_depths[literal_miss]) 
-        stats['symbol_miss_depth'].extend(sample_depths[symbol_miss])         
-        stats['meta_miss_depth'].extend(sample_depths[meta_miss])
-        stats['type_miss_depth'].extend(sample_depths[type_miss])
-        miss_idxs = torch.where(misses)[0]
-        if miss_idxs.numel() > 0:
-            stats['first_miss_pos'].append(miss_idxs[0] - sample_start)
-        miss_idxs = torch.where(literal_miss)[0]
-        if miss_idxs.numel() > 0:
-            stats['first_literal_miss_pos'].append(miss_idxs[0].item() - sample_start)
-        miss_idxs = torch.where(symbol_miss)[0]
-        if miss_idxs.numel() > 0:
-            stats['first_symbol_miss_pos'].append(miss_idxs[0].item() - sample_start)
-        miss_idxs = torch.where(meta_miss)[0]
-        if miss_idxs.numel() > 0:
-            stats['first_meta_miss_pos'].append(miss_idxs[0].item() - sample_start)
-        miss_idxs = torch.where(type_miss)[0]
-        if miss_idxs.numel() > 0:
-            stats['first_type_miss_pos'].append(miss_idxs[0].item() - sample_start)
+        start_id = torch.where(sample_labels != -100)[0][0].item() #NOTE: there should be label which is not -100
+        main_sample_labels = sample_labels[start_id:]
+        main_sample_predictions = sample_predictions[start_id:]
+        misses = torch.logical_and(main_sample_predictions != -100, main_sample_labels != main_sample_predictions)
+        misses_idxs = torch.where(misses)[0]
+        first_miss_idx = misses_idxs[0].item() if misses_idxs.numel() > 0 else None
+        misses_count = torch.sum(misses)
+        stats['total_miss'].append(misses_count)
+        if (sample_predictions[-1] != -100).item():            
+            stats['complete_miss_avg'].append(misses_count)        
+        else:
+            stats['incomplete_progcount'].append(1)
+        def get_symbol_category(tid):
+            symbol_name = tid_to_symbol_map.get(tid, None)            
+            if symbol_name is None:
+                return None 
+            symbol = grammar_collector.symbols[symbol_name]
+            if symbol.group is None:
+                return None     
+            return symbol.group.__name__               
+        tid_to_category = np.vectorize(get_symbol_category)
+        label_categories = tid_to_category(main_sample_labels)
+        prediction_categories = tid_to_category(main_sample_predictions)
+        stats['group_miss'].append(np.sum(label_categories != prediction_categories))
+        # label_categories = sum(main_sample_labels == token for token in token_to_symbol_map.keys())
+        # prediction_categories = sum(main_sample_labels == token for token in token_to_symbol_map.keys())
+        # literal_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_LITERAL)
+        # symbol_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_SYMBOL)
+        # meta_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_META)
+        # type_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_TYPE)
+        # misses = torch.logical_or(literal_miss, torch.logical_or(symbol_miss, torch.logical_or(meta_miss, type_miss)))        
+        # stats['literal_miss'].append(torch.sum(literal_miss))
+        # stats['symbol_miss'].append(torch.sum(symbol_miss))
+        # stats['meta_miss'].append(torch.sum(meta_miss))
+        # stats['type_miss'].append(torch.sum(type_miss))
+        if first_miss_idx is not None:
+            stats['first_miss_depth'].append(sample_depths[first_miss_idx])
+            stats['first_miss_pos'].append(first_miss_idx - sample_start)
+        # stats['literal_miss_depth'].extend(sample_depths[literal_miss]) 
+        # stats['symbol_miss_depth'].extend(sample_depths[symbol_miss])         
+        # stats['meta_miss_depth'].extend(sample_depths[meta_miss])
+        # stats['type_miss_depth'].extend(sample_depths[type_miss])
+        # miss_idxs = torch.where(literal_miss)[0]
+        # if miss_idxs.numel() > 0:
+        #     stats['first_literal_miss_pos'].append(miss_idxs[0].item() - sample_start)
+        # miss_idxs = torch.where(symbol_miss)[0]
+        # if miss_idxs.numel() > 0:
+        #     stats['first_symbol_miss_pos'].append(miss_idxs[0].item() - sample_start)
+        # miss_idxs = torch.where(meta_miss)[0]
+        # if miss_idxs.numel() > 0:
+        #     stats['first_meta_miss_pos'].append(miss_idxs[0].item() - sample_start)
+        # miss_idxs = torch.where(type_miss)[0]
+        # if miss_idxs.numel() > 0:
+        #     stats['first_type_miss_pos'].append(miss_idxs[0].item() - sample_start)
     # avg_depth = None if len(first_error_depths) == 0 else np.mean(first_error_depths)
-    res = {k:None if len(v) == 0 else np.sum(v) if k.endswith("_miss") else np.mean(v) for k,v in stats.items()}
+    res = {k:None if len(v) == 0 else np.sum(v) if k.endswith("_miss") or k.endswith("count") else np.mean(v) for k,v in stats.items()}
     testset_depths.clear()
     testset_predictions.clear()
     testset_categories.clear()
@@ -549,13 +572,13 @@ print(output.metrics) #test set metrics
 
 def save_testset_metrics(out_metrics):
     fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_unparse_type_errors_percent", "test_proglen",
-                    "test_total_miss", "test_literal_miss", "test_symbol_miss", "test_meta_miss", "test_type_miss",
-                    "test_miss_depth", "test_literal_miss_depth", "test_symbol_miss_depth", "test_meta_miss_depth", "test_type_miss_depth",
-                    "test_first_miss_pos", "test_first_literal_miss_pos", "test_first_symbol_miss_pos", "test_first_meta_miss_pos",
-                    "test_first_type_miss_pos", "test_bleu", "test_chrf", "test_CodeBLEU", "timestamp"]
+                    "test_total_miss", "test_complete_miss_avg", "test_incomplete_progcount",
+                    "test_group_miss", "test_first_miss_depth", "test_first_miss_pos", 
+                    "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
     filtered_metrics = {k:v for k, v in out_metrics.items() if k in fieldnames}
     filtered_metrics['timestamp'] = datetime.now()
     filtered_metrics['down_level'] = grammar_enforcement_down_level    
+    filtered_metrics['seed'] = seed
     should_append_header = not os.path.exists(metric_file) #NOTE: not atomic but we do not care
     with open(metric_file, 'a', newline='') as metrics: 
         writer = csv.DictWriter(metrics, fieldnames)
