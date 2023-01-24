@@ -39,8 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
-logit_depth_penalty = 0.98 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
-logit_length_penalty = 0.98 #used for literal synthesis
+logit_depth_penalty = 0.995 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 0.995 #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
