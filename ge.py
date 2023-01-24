@@ -172,6 +172,7 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
     correct_count = 0
     all_count = 0
     unparse_type_errors = 0
+    unparse_value_errors = 0
     errs_to_print = 3
     for preds, labels, was_match in zip(prediction_labels, shift_labels, matches):              
         label_map = labels >= 0
@@ -184,8 +185,14 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
             p_text = unprocess(message)
             correct_count += 1
         except ValueError as e:
-            unparse_type_errors += 1
+            print("Error in unprocess on match", e, file = sys.stderr)
+            print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
+            print("MSG:", message, file = sys.stderr)
+            unparse_value_errors += 1
         except TypeError as e:
+            print("Error in unprocess on match", e, file = sys.stderr)
+            print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
+            print("MSG:", message, file = sys.stderr)
             unparse_type_errors += 1            
         except Exception as e:
             if was_match and errs_to_print > 0:
@@ -193,7 +200,7 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
                 print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
                 print("MSG:", message, file = sys.stderr)
                 errs_to_print -= 1
-    return {"correct_percent": correct_count / all_count , "unparse_type_errors_percent": unparse_type_errors / all_count}
+    return {"correct_percent": correct_count / all_count , "unparse_type_errors_percent": unparse_type_errors / all_count, "unparse_value_errors_percent": unparse_value_errors / all_count}
 
 # first_error_depths = []
 #NOTE: these are global refs to tensors obtained from eval or test of the model. They are used in metrics to study types of errors
@@ -265,6 +272,10 @@ def compute_error_stats():
         #     stats['first_type_miss_pos'].append(miss_idxs[0].item() - sample_start)
     # avg_depth = None if len(first_error_depths) == 0 else np.mean(first_error_depths)
     res = {k:None if len(v) == 0 else np.sum(v) if k.endswith("_miss") or k.endswith("count") else np.mean(v) for k,v in stats.items()}
+    res.setdefault("complete_miss_avg", 0)
+    res.setdefault("incomplete_progcount", 0)
+    res.setdefault("first_miss_depth", None)
+    res.setdefault("first_miss_pos", None)
     testset_depths.clear()
     testset_predictions.clear()
     testset_categories.clear()
