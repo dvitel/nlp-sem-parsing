@@ -39,6 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
+logit_depth_penalty = 0.97 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 0.97 #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -123,6 +125,37 @@ def preprocess(e):
 
 ds1 = ds01.map(preprocess, batched = True, remove_columns = ["source", "target"])
 
+
+#NOTE: type values regexes with tokenizer
+#int type -?(\d)+
+unary_minus_id = tokenizer('-').input_ids[0]
+int_digit_tids = [tokens.input_ids[0] for i in range(10) for tokens in [tokenizer(str(i))]]
+def int_allowed_tids(prev_tokens, logits_filter):
+    if len(prev_tokens) == 0:
+        logits_filter[[unary_minus_id, *int_digit_tids]] = grammar_enforcement_up_level
+    elif len(prev_tokens) > 1 or (prev_tokens[0] != unary_minus_id):
+        logits_filter[int_digit_tids] = (logit_length_penalty ** len(prev_tokens)) * grammar_enforcement_up_level
+        logits_filter[nend_id] = grammar_enforcement_up_level
+    else:
+        logits_filter[int_digit_tids] = grammar_enforcement_up_level
+#bool type (True|False)
+true_tid = tokenizer("True").input_ids[0] #checked - it is one token
+false_tid = tokenizer("False").input_ids[0] #same
+def bool_allowed_tids(prev_tokens, logits_filter):
+    if len(prev_tokens) == 0:        
+        logits_filter[[true_tid, false_tid]] = grammar_enforcement_up_level
+    else:
+        logits_filter[nend_id] = grammar_enforcement_up_level
+#NoneType 
+def none_allowed_tids(prev_tokens, logits_filter):
+    logits_filter[nend_id] = grammar_enforcement_up_level
+#str 
+# def str_allowed_tids(prev_tokens, logits_filter):
+#     logits_filter[:] = (logit_length_penalty ** len(prev_tokens)) * grammar_enforcement_up_level
+#     logits_filter[nend_id] = grammar_enforcement_up_level
+
+type_allowed_tids = {'[int]':int_allowed_tids, '[bool]':bool_allowed_tids,'[NoneType]':none_allowed_tids}
+
 # def compute_avg_miss_pos(prediction_labels, shift_labels):
 #     first_miss_idxs = []
 #     for preds, labels in zip(prediction_labels, shift_labels):              
@@ -187,8 +220,7 @@ def compute_error_stats():
         stats['total_miss'].append(misses_count)
         if (sample_predictions[-1] != -100).item():            
             stats['complete_miss_avg'].append(misses_count)        
-        else:
-            stats['incomplete_progcount'].append(1)
+            stats['incomplete_progcount'].append(1)            
         def get_symbol_category(tid):
             symbol_name = tid_to_symbol_map.get(tid, None)            
             if symbol_name is None:
@@ -293,8 +325,13 @@ class GELayerData:
     categories: 'torch.tensor' #annotation of each token with grammar category
     predictions: 'Optional[torch.tensor]' #detected predictions in GELayer
     max_token_num: int = max_length
-    cur_debug_tokens: Optional[int] = None
+    cur_debug_tokens: Optional[int] = None    
 
+def get_symbol_weights(depth, possible_symbols):
+    return [(logit_depth_penalty ** depth 
+                if any(a.group in grammar_collector.recursive_groups 
+                        for a in grammar_collector.symbols[symbol_name].attrs) 
+                else 1) * grammar_enforcement_up_level for symbol_name in possible_symbols ]
 #https://docs.python.org/3/library/ast.html
 class PythonGrammarGPT2(torch.nn.Module):
     def __init__(self):
@@ -346,13 +383,15 @@ class PythonGrammarGPT2(torch.nn.Module):
         """ Check that predicted tokens will build Literal in grammar """
         if token_id >= data.max_token_num:
             return data.max_token_num
+        tids_setter = None
         if parent.type == ast.Constant:
             #first token in a chunk should be a type of literal
             label_ids = [ symbol_to_tid_map[label] for label in grammar_collector.non_ast_types.keys() ]
             logits_filter = data.logits_filter[token_id, :]
             logits_filter[:] = grammar_enforcement_down_level
             logits_filter[label_ids] = grammar_enforcement_up_level            
-            self.pick_symbol_or_token(data, token_id, depth, CATEGORY_TYPE)            
+            literal_type_symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_TYPE)     
+            tids_setter = type_allowed_tids.get(literal_type_symbol_name, None)
             token_id += 1        
         #first symbol have to be literal start
         logits_filter = data.logits_filter[token_id, :]
@@ -360,11 +399,18 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits_filter[literal_start_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
+        literal_tokens = []
         while token_id < data.max_token_num:
             logits_filter = data.logits_filter[token_id, :]
-            logits_filter[:] = grammar_enforcement_up_level     
-            symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_LITERAL)
+            if tids_setter is None:
+                logits_filter[:] = (logit_length_penalty ** len(literal_tokens)) * grammar_enforcement_up_level
+                logits_filter[nend_id] = grammar_enforcement_up_level
+            else:
+                logits_filter[:] = grammar_enforcement_down_level
+                tids_setter(literal_tokens, logits_filter)
+            symbol_name, tid = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_LITERAL)
             token_id += 1 
+            literal_tokens.append(tid)
             if symbol_name == NEND: #exit the constant synth                
                 break             
         return token_id
@@ -379,15 +425,21 @@ class PythonGrammarGPT2(torch.nn.Module):
         logits_filter[lst_id] = grammar_enforcement_up_level
         self.pick_symbol_or_token(data, token_id, depth, CATEGORY_META)
         token_id += 1
+        siblings_count = 0
         while token_id < data.max_token_num:
             possible_labels = grammar_collector.groups[attr.group]
             label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
             label_ids.append(nend_id)
+            symbol_weights = get_symbol_weights(depth, possible_labels)
+            symbol_weights.append(grammar_enforcement_up_level)
+            symbol_weights_tensor = torch.tensor(symbol_weights, device = data.logits_filter.device)  
+            symbol_weights_tensor[:-1] *= (logit_length_penalty ** siblings_count)
             logits_filter = data.logits_filter[token_id, :]
             logits_filter[:] = grammar_enforcement_down_level
-            logits_filter[label_ids] = grammar_enforcement_up_level
+            logits_filter[label_ids] = symbol_weights_tensor
             symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
             token_id += 1 
+            siblings_count += 1
             if symbol_name == NEND: #enforce NEND and break                                 
                 break 
             if symbol_name is not None: #we just skip this logit and continue 
@@ -410,9 +462,11 @@ class PythonGrammarGPT2(torch.nn.Module):
         # assert attr.group in grammar_collector.groups, f"Symbol group was not found in groups for {attr}"
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
+        symbol_weights = get_symbol_weights(depth, possible_labels)
+        symbol_weights_tensor = torch.tensor(symbol_weights, device = data.logits_filter.device)        
         logits_filter = data.logits_filter[token_id, :]
         logits_filter[:] = grammar_enforcement_down_level
-        logits_filter[label_ids] = grammar_enforcement_up_level                
+        logits_filter[label_ids] = symbol_weights_tensor                
         symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_SYMBOL)
         token_id += 1
         if symbol_name is not None:

@@ -99,6 +99,7 @@ class GrammarCollector():
         self.groups = {}
         self.non_ast_types = {}
         self.symbols = {LST: self.LST, NEND: self.NEND}
+        self.recursive_groups = {ast.stmt, ast.expr} #set of groups which could create recursive loops
     
     def get_name(self, v): 
         return f"[{v.__name__ if type(v) == type else str(v)}]"
@@ -344,7 +345,13 @@ class GrammarCollector():
 # for t in tasts:
 #     v.collect_metadata(t)    
 
+# [s for (n, s) in v.symbols.items() if n == '[Constant]']
 
+# # p = 'class IronbarkProtector(MinionCard):§    def __init__(self):§        super().__init__("Ironbark Protector", 8, CHARACTER_CLASS.DRUID, CARD_RARITY.COMMON)§§    def create_minion(self, player):§        return Minion(8, 8, taunt=True)§'
+# p = 'class KnifeJuggler(MinionCard):§    def __init__(self):§        super().__init__("Knife Juggler", 2, CHARACTER_CLASS.ALL, CARD_RARITY.RARE)§§    def create_minion(self, player):§        return Minion(3, 2, effects=[Effect(AfterAdded(), ActionTag(Damage(1), CharacterSelector(players=EnemyPlayer(), picker=RandomPicker(), condition=None)))])§'
+# p = p.replace("§", "\n")
+# t = ast.parse(p)
+# v.build_message(t, [])
 # v.symbols['[FunctionDef]']
     # ]       ]", "
     # ([^\["])\[         $1", "[
