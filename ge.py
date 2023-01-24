@@ -432,7 +432,7 @@ class PythonGrammarGPT2(torch.nn.Module):
             label_ids.append(nend_id)
             symbol_weights = get_symbol_weights(depth, possible_labels)
             symbol_weights.append(grammar_enforcement_up_level)
-            symbol_weights_tensor = torch.tensor(symbol_weights, device = data.logits_filter.device)  
+            symbol_weights_tensor = torch.tensor(symbol_weights, dtype=data.logits_filter.dtype, device = data.logits_filter.device)  
             symbol_weights_tensor[:-1] *= (logit_length_penalty ** siblings_count)
             logits_filter = data.logits_filter[token_id, :]
             logits_filter[:] = grammar_enforcement_down_level
@@ -463,7 +463,7 @@ class PythonGrammarGPT2(torch.nn.Module):
         possible_labels = grammar_collector.groups[attr.group]
         label_ids = [ symbol_to_tid_map[label] for label in possible_labels ]
         symbol_weights = get_symbol_weights(depth, possible_labels)
-        symbol_weights_tensor = torch.tensor(symbol_weights, device = data.logits_filter.device)        
+        symbol_weights_tensor = torch.tensor(symbol_weights, dtype=data.logits_filter.dtype, device = data.logits_filter.device)        
         logits_filter = data.logits_filter[token_id, :]
         logits_filter[:] = grammar_enforcement_down_level
         logits_filter[label_ids] = symbol_weights_tensor                
