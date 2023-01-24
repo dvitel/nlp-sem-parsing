@@ -39,8 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
-logit_depth_penalty = 1.0 - 0.02 * (1.0 - grammar_enforcement_down_level) #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
-logit_length_penalty = 1.0 - 0.02 * (1.0 - grammar_enforcement_down_level) #used for literal synthesis
+logit_depth_penalty = 1.0 - 0.01 * (1.0 - grammar_enforcement_down_level) #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 1.0 - 0.01 * (1.0 - grammar_enforcement_down_level) #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -655,7 +655,7 @@ def save_testset_metrics(out_metrics):
                     "test_unparse_value_errors_percent", "test_proglen",
                     "test_total_miss", "test_incomplete_miss", "test_incomplete_progcount",
                     "test_group_miss", "test_first_miss_depth", "test_first_miss_pos", 
-                    "test_tail_label_tokens_count", "test_predictiton_tokens_count", "test_shorter_count", "test_longer_count", 
+                    "test_tail_label_tokens_count", "test_tail_predictiton_tokens_count", "test_shorter_count", "test_longer_count", 
                     "test_samesize_error_count", "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
     filtered_metrics = {k:v for k, v in out_metrics.items() if k in fieldnames}
     filtered_metrics['timestamp'] = datetime.now()
