@@ -185,14 +185,14 @@ def compute_correct_percent(prediction_labels, shift_labels, matches):
             p_text = unprocess(message)
             correct_count += 1
         except ValueError as e:
-            print("Error in unprocess on match", e, file = sys.stderr)
-            print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
-            print("MSG:", message, file = sys.stderr)
+            # print("Error in unprocess on match", e, file = sys.stderr)
+            # print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
+            # print("MSG:", message, file = sys.stderr)
             unparse_value_errors += 1
         except TypeError as e:
-            print("Error in unprocess on match", e, file = sys.stderr)
-            print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
-            print("MSG:", message, file = sys.stderr)
+            # print("Error in unprocess on match", e, file = sys.stderr)
+            # print(f"Msg len {len(message)}. token len {len(filtered_pred_view)}/{len(pred_view)} at {start_tid} ({max_length - start_tid} left)")
+            # print("MSG:", message, file = sys.stderr)
             unparse_type_errors += 1            
         except Exception as e:
             if was_match and errs_to_print > 0:
