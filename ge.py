@@ -390,7 +390,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                     "Expected tid: ", symbol_to_tid_map.get(expected_symbol, None), file = sys.stderr)
             raise 
 
-    def _decode_constant_arg(self, data: GELayerData, parent: Symbol, token_id, depth) -> int:
+    def _decode_constant_arg(self, data: GELayerData, attr: SymbolAttr, parent: Symbol, token_id, depth) -> int:
         """ Check that predicted tokens will build Literal in grammar """
         if token_id >= data.max_token_num:
             return data.max_token_num
@@ -404,6 +404,8 @@ class PythonGrammarGPT2(torch.nn.Module):
             literal_type_symbol_name, _ = self.pick_symbol_or_token(data, token_id, depth, CATEGORY_TYPE)     
             tids_setter = type_allowed_tids.get(literal_type_symbol_name, None)
             token_id += 1        
+        elif attr.type == int: #TODO: check if in type_allowed_tids probably
+            tids_setter = type_allowed_tids.get(grammar_collector.get_name(attr.type), None)
         #first symbol have to be literal start
         logits_filter = data.logits_filter[token_id, :]
         logits_filter[:] = grammar_enforcement_down_level
@@ -463,7 +465,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                     if not a.has_values: #note that we ignore this assuming that input follows the trained schema
                         continue #tensor does not have logits for this attr
                     elif (not a.is_seq) and a.group is None:
-                        token_id = self._decode_constant_arg(data, symbol, token_id, depth + 1)
+                        token_id = self._decode_constant_arg(data, a, symbol, token_id, depth + 1)
                     elif not a.is_seq:
                         token_id = self._decode_symbol_arg(data, a, token_id, depth + 1) 
                     else: #list 
@@ -490,7 +492,7 @@ class PythonGrammarGPT2(torch.nn.Module):
                 if not a.has_values: #note that we ignore this assuming that input follows the trained schema
                     continue #tensor does not have logits for this attr
                 elif (not a.is_seq) and a.group is None:
-                    token_id = self._decode_constant_arg(data, symbol, token_id, depth + 1)
+                    token_id = self._decode_constant_arg(data, a, symbol, token_id, depth + 1)
                 elif not a.is_seq:
                     token_id = self._decode_symbol_arg(data, a, token_id, depth + 1) 
                 else: #list 
