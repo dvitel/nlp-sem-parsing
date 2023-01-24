@@ -39,8 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
-logit_depth_penalty = 0.995 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
-logit_length_penalty = 0.995 #used for literal synthesis
+logit_depth_penalty = 1.0 - 0.001 * (1.0 - grammar_enforcement_down_level) #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 1.0 - 0.001 * (1.0 - grammar_enforcement_down_level) #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -220,13 +220,13 @@ def compute_error_stats():
         start_id = torch.where(sample_labels != -100)[0][0].item() #NOTE: there should be label which is not -100
         main_sample_labels = sample_labels[start_id:]
         main_sample_predictions = sample_predictions[start_id:]
-        misses = torch.logical_and(main_sample_predictions != -100, main_sample_labels != main_sample_predictions)
+        misses = main_sample_labels != main_sample_predictions
         misses_idxs = torch.where(misses)[0]
         first_miss_idx = misses_idxs[0].item() if misses_idxs.numel() > 0 else None
         misses_count = torch.sum(misses)
         stats['total_miss'].append(misses_count)
         if (sample_predictions[-1] != -100).item():            
-            stats['complete_miss_avg'].append(misses_count)        
+            stats['incomplete_miss'].append(misses_count)   
             stats['incomplete_progcount'].append(1)            
         def get_symbol_category(tid):
             symbol_name = tid_to_symbol_map.get(tid, None)            
@@ -272,7 +272,7 @@ def compute_error_stats():
         #     stats['first_type_miss_pos'].append(miss_idxs[0].item() - sample_start)
     # avg_depth = None if len(first_error_depths) == 0 else np.mean(first_error_depths)
     res = {k:None if len(v) == 0 else np.sum(v) if k.endswith("_miss") or k.endswith("count") else np.mean(v) for k,v in stats.items()}
-    res.setdefault("complete_miss_avg", 0)
+    res.setdefault("incomplete_miss", 0)
     res.setdefault("incomplete_progcount", 0)
     res.setdefault("first_miss_depth", None)
     res.setdefault("first_miss_pos", None)
@@ -644,7 +644,7 @@ print(output.metrics) #test set metrics
 def save_testset_metrics(out_metrics):
     fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_unparse_type_errors_percent", 
                     "test_unparse_value_errors_percent", "test_proglen",
-                    "test_total_miss", "test_complete_miss_avg", "test_incomplete_progcount",
+                    "test_total_miss", "test_incomplete_miss", "test_incomplete_progcount",
                     "test_group_miss", "test_first_miss_depth", "test_first_miss_pos", 
                     "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
     filtered_metrics = {k:v for k, v in out_metrics.items() if k in fieldnames}
