@@ -39,8 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
-logit_depth_penalty = 1.0 - 0.001 * (1.0 - grammar_enforcement_down_level) #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
-logit_length_penalty = 1.0 - 0.001 * (1.0 - grammar_enforcement_down_level) #used for literal synthesis
+logit_depth_penalty = 1.0 - 0.02 * (1.0 - grammar_enforcement_down_level) #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 1.0 - 0.02 * (1.0 - grammar_enforcement_down_level) #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -223,7 +223,7 @@ def compute_error_stats():
         misses = main_sample_labels != main_sample_predictions
         misses_idxs = torch.where(misses)[0]
         first_miss_idx = misses_idxs[0].item() if misses_idxs.numel() > 0 else None
-        misses_count = torch.sum(misses)
+        misses_count = torch.sum(misses).item()
         stats['total_miss'].append(misses_count)
         if (sample_predictions[-1] != -100).item():            
             stats['incomplete_miss'].append(misses_count)   
@@ -240,6 +240,15 @@ def compute_error_stats():
         label_categories = tid_to_category(main_sample_labels)
         prediction_categories = tid_to_category(main_sample_predictions)
         stats['group_miss'].append(np.sum(label_categories != prediction_categories))
+
+        #computing tails 
+        tail_label_tokens_count = torch.sum(torch.logical_and(main_sample_labels != -100, main_sample_predictions == -100)).item()
+        tail_predictiton_tokens_count = torch.sum(torch.logical_and(main_sample_labels == -100, main_sample_predictions != -100)).item()
+        stats['tail_label_tokens_count'].append(tail_label_tokens_count)
+        stats['tail_predictiton_tokens_count'].append(tail_predictiton_tokens_count)
+        stats['shorter_count'].append(1 if tail_label_tokens_count > 0 else 0)
+        stats['longer_count'].append(1 if tail_predictiton_tokens_count > 0 else 0)
+        stats['samesize_error_count'].append(1 if tail_label_tokens_count == 0 and tail_predictiton_tokens_count == 0 and misses_count > 0 else 0)
         # label_categories = sum(main_sample_labels == token for token in token_to_symbol_map.keys())
         # prediction_categories = sum(main_sample_labels == token for token in token_to_symbol_map.keys())
         # literal_miss = torch.logical_and(bare_misses, sample_categories == CATEGORY_LITERAL)
@@ -646,7 +655,8 @@ def save_testset_metrics(out_metrics):
                     "test_unparse_value_errors_percent", "test_proglen",
                     "test_total_miss", "test_incomplete_miss", "test_incomplete_progcount",
                     "test_group_miss", "test_first_miss_depth", "test_first_miss_pos", 
-                    "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
+                    "test_tail_label_tokens_count", "test_predictiton_tokens_count", "test_shorter_count", "test_longer_count", 
+                    "test_samesize_error_count", "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
     filtered_metrics = {k:v for k, v in out_metrics.items() if k in fieldnames}
     filtered_metrics['timestamp'] = datetime.now()
     filtered_metrics['down_level'] = grammar_enforcement_down_level    
