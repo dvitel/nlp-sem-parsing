@@ -39,8 +39,8 @@ eval_steps = 800
 learning_rate = 4e-5
 num_debug_tokens = 15
 num_debug_eval_samples = 0 if len(sys.argv) < 4 else int(sys.argv[3])
-logit_depth_penalty = 0.97 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
-logit_length_penalty = 0.97 #used for literal synthesis
+logit_depth_penalty = 0.98 #each time we consider constructor with group alternative, we multiply its up level to accumulated depth_penalty
+logit_length_penalty = 0.98 #used for literal synthesis
 
 # torch.autograd.set_detect_anomaly(True)
 grammar_collector = GrammarCollector()
@@ -150,11 +150,11 @@ def bool_allowed_tids(prev_tokens, logits_filter):
 def none_allowed_tids(prev_tokens, logits_filter):
     logits_filter[nend_id] = grammar_enforcement_up_level
 #str 
-# def str_allowed_tids(prev_tokens, logits_filter):
-#     logits_filter[:] = (logit_length_penalty ** len(prev_tokens)) * grammar_enforcement_up_level
-#     logits_filter[nend_id] = grammar_enforcement_up_level
+def str_allowed_tids(prev_tokens, logits_filter):
+    logits_filter[:] = (logit_length_penalty ** len(prev_tokens)) * grammar_enforcement_up_level
+    logits_filter[nend_id] = grammar_enforcement_up_level
 
-type_allowed_tids = {'[int]':int_allowed_tids, '[bool]':bool_allowed_tids,'[NoneType]':none_allowed_tids}
+type_allowed_tids = {'[int]':int_allowed_tids, '[bool]':bool_allowed_tids,'[NoneType]':none_allowed_tids, '[str]': str_allowed_tids}
 
 # def compute_avg_miss_pos(prediction_labels, shift_labels):
 #     first_miss_idxs = []
@@ -415,7 +415,11 @@ class PythonGrammarGPT2(torch.nn.Module):
             logits_filter = data.logits_filter[token_id, :]
             if tids_setter is None:
                 logits_filter[:] = (logit_length_penalty ** len(literal_tokens)) * grammar_enforcement_up_level
-                logits_filter[nend_id] = grammar_enforcement_up_level
+                logits_filter[list(tid_to_symbol_map.keys())] = grammar_enforcement_down_level #disallow incorrect identifiers
+                if len(literal_tokens) > 0: #identifiers could not be empty
+                    logits_filter[nend_id] = grammar_enforcement_up_level
+                else:
+                    logits_filter[nend_id] = grammar_enforcement_down_level
             else:
                 logits_filter[:] = grammar_enforcement_down_level
                 tids_setter(literal_tokens, logits_filter)
@@ -636,7 +640,8 @@ output = trainer.predict(ds1["test"], ignore_keys = ["past_key_values", "hidden_
 print(output.metrics) #test set metrics
 
 def save_testset_metrics(out_metrics):
-    fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_unparse_type_errors_percent", "test_proglen",
+    fieldnames = ["down_level", "test_exact_match", "test_correct_percent", "test_unparse_type_errors_percent", 
+                    "test_unparse_value_errors_percent", "test_proglen",
                     "test_total_miss", "test_complete_miss_avg", "test_incomplete_progcount",
                     "test_group_miss", "test_first_miss_depth", "test_first_miss_pos", 
                     "test_bleu", "test_chrf", "test_CodeBLEU", "seed", "timestamp"]
