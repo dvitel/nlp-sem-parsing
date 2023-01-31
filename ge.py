@@ -638,8 +638,8 @@ args = TrainingArguments(
 class DownLevelAnnealer(TrainerCallback):
     def on_epoch_end(self, args, state, control, **kwargs):
         global grammar_enforcement_down_level
-        grammar_enforcement_down_level = 1.0 - (1.0 - final_down_level) * args.epoch / num_epochs
-        print(f"Anneal {args.epoch}/{num_epochs}, down level: {grammar_enforcement_down_level}/{final_down_level}")
+        grammar_enforcement_down_level = 1.0 - (1.0 - final_down_level) * state.epoch / num_epochs
+        print(f"Anneal {state.epoch}/{num_epochs}, down level: {grammar_enforcement_down_level}/{final_down_level}")
 
 model = PythonGrammarGPT2()
 trainer = Trainer(
