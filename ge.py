@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import sys
 from typing import Optional
-from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling
+from transformers import AutoTokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, DataCollatorForLanguageModeling, TrainerCallback
 from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
 from datasets import Dataset, DatasetDict, load_dataset
 import evaluate
@@ -25,7 +25,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 grammar_enforcement_down_level_str = "1.0" if len(sys.argv) == 1 else sys.argv[1]
 print(f"Starting Grammar Enforcement with down level {grammar_enforcement_down_level_str}")
 grammar_enforcement_down_level_str_safe = grammar_enforcement_down_level_str.replace(".", "_")
-grammar_enforcement_down_level = float(grammar_enforcement_down_level_str)
+final_down_level = float(grammar_enforcement_down_level_str[1:]) if grammar_enforcement_down_level_str.startswith('a') else None
+grammar_enforcement_down_level = 1.0 if final_down_level is not None else float(grammar_enforcement_down_level_str)
 grammar_enforcement_up_level = 1.0
 ds_name = "dvitel/hearthstone"
 out_dir = f"out/ge-{seed}-{grammar_enforcement_down_level_str_safe}"
@@ -634,6 +635,12 @@ args = TrainingArguments(
     seed = seed, label_names = ["labels"]
 )
 
+class DownLevelAnnealer(TrainerCallback):
+    def on_epoch_end(self, args, state, control, **kwargs):
+        global grammar_enforcement_down_level
+        grammar_enforcement_down_level = 1.0 - (1.0 - final_down_level) * args.epoch / num_epochs
+        print(f"Anneal {args.epoch}/{num_epochs}, down level: {grammar_enforcement_down_level}/{final_down_level}")
+
 model = PythonGrammarGPT2()
 trainer = Trainer(
     model = model,
@@ -643,6 +650,7 @@ trainer = Trainer(
     data_collator = custom_data_collator,
     train_dataset = ds1["train"],
     eval_dataset = ds1["validation"],
+    callbacks = [DownLevelAnnealer]
 )
 
 trainer.train(ignore_keys_for_eval = ["past_key_values", "hidden_states", "attentions", "cross_attentions"])
