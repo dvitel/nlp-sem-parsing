@@ -1,3 +1,4 @@
+import subprocess
 import torch 
 import psutil
 import platform
@@ -14,4 +15,7 @@ print(mem)
 cpu = platform.processor()
 print("Processor")
 print(cpu)
+command = "cat /proc/cpuinfo"
+all_info = subprocess.check_output(command, shell=True).decode().strip()
+print(all_info)
 print("Num processors: ", multiprocessing.cpu_count())
